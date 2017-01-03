@@ -4,3 +4,7 @@ version = "0.1.0"
 authors = ["tux3 <barrdetwix@gmail.com>"]
 
 [dependencies]
+hyper = "0.9"
+rustc-serialize = "0.3"
+sodiumoxide = "0.0.12"
+rpassword = "0.3.0"
