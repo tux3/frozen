@@ -1,12 +1,13 @@
 use std::vec::Vec;
 use std::error::Error;
 use std::iter::Iterator;
-use bincode::SizeLimit;
+use std::path::Path;
+use std::fs;
+use bincode;
 use bincode::rustc_serialize::{encode, decode};
 use crypto;
 use b2api;
-
-extern crate bincode;
+use super::file::LocalFile;
 
 #[derive(Clone, RustcEncodable, RustcDecodable, PartialEq)]
 pub struct BackupRoot {
@@ -21,6 +22,29 @@ impl BackupRoot {
             path_hash: crypto::hash_path(path, key),
         }
     }
+
+    pub fn list_local_files(&self) -> Result<Vec<LocalFile>, Box<Error>> {
+        let path = Path::new(&self.path);
+        if !path.is_dir() {
+            Err(From::from(format!("{} is not a folder!", &self.path)))
+        } else {
+            list_local_files(path, path)
+        }
+    }
+}
+
+fn list_local_files(base: &Path, dir: &Path) -> Result<Vec<LocalFile>, Box<Error>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            files.append(&mut list_local_files(base, &path)?);
+        } else {
+            files.push(LocalFile::new(base, &path)?)
+        }
+    }
+    Ok(files)
 }
 
 pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {

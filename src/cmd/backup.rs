@@ -1,6 +1,6 @@
 use std::error::Error;
 use config::Config;
-use data::root;
+use data::{root, file};
 use b2api;
 
 pub fn backup(config: &Config, path: &String) -> Result<(), Box<Error>> {
@@ -15,7 +15,8 @@ pub fn backup(config: &Config, path: &String) -> Result<(), Box<Error>> {
     println!("Found {} roots", roots.len());
     println!("Opened root {} hash {}", root.path, root.path_hash);
 
-
+    println!("Listing local files");
+    let files = root.list_local_files()?;
 
     panic!("Backup not implemented yet!");
 }

@@ -1,13 +1,11 @@
 use std::error::Error;
 use std::io::Read;
 use std::vec::Vec;
-use std::fmt;
 use crypto;
 use config::Config;
 use hyper::client::Client;
 use hyper::client::response::Response;
-use hyper::header::{Authorization, Basic, Headers, ContentType, ContentLength};
-use hyper::mime::{Mime, TopLevel, SubLevel};
+use hyper::header::{Authorization, Basic, ContentType, ContentLength};
 use rustc_serialize::json::Json;
 
 header!{(XBzFileName, "X-Bz-File-Name") => [String]}
