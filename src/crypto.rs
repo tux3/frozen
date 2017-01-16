@@ -2,6 +2,8 @@ use std::vec::Vec;
 use sodiumoxide::crypto::hash;
 use sodiumoxide::crypto::pwhash;
 use sodiumoxide::crypto::secretbox;
+use rustc_serialize::hex::ToHex;
+use sha1::Sha1;
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
@@ -38,4 +40,20 @@ pub fn decrypt(cipher: &Vec<u8>, key: &Key) -> Result<Vec<u8>, ()> {
     }
 
     secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), &key)
+}
+
+pub fn hash_path(path: &String, key: &Key) -> String {
+    let &Key(keydata) = key;
+    let mut data = Vec::from(path.as_bytes());
+    data.extend_from_slice(&keydata);
+    let hash = hash::sha256::hash(data.as_ref());
+    let mut hash_str = hash.as_ref().to_hex();
+    hash_str.truncate(32); // Keep file names reasonably short
+    return hash_str;
+}
+
+pub fn sha1_string(data: &[u8]) -> String {
+    let mut hash = Sha1::new();
+    hash.update(data);
+    hash.digest().to_string()
 }

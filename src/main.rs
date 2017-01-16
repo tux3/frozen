@@ -1,7 +1,11 @@
 extern crate rustc_serialize;
-extern crate hyper;
+extern crate bincode;
 extern crate rpassword;
 extern crate sodiumoxide;
+extern crate sha1;
+#[macro_use]
+extern crate hyper;
+
 use std::env;
 use std::process::exit;
 
@@ -10,6 +14,7 @@ mod config;
 mod b2api;
 mod util;
 mod crypto;
+mod data;
 
 fn help_and_die(selfname: &String) -> ! {
     println!("Usage: {} command path", selfname);
