@@ -1,8 +1,11 @@
 use std::error::Error;
 use std::io::Read;
 use std::vec::Vec;
-use crypto;
+use std::time::{SystemTime, UNIX_EPOCH};
+use crypto::{self, encode_time, decode_time};
+use data::file::RemoteFile;
 use config::Config;
+use util;
 use hyper::client::Client;
 use hyper::client::response::Response;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
@@ -10,6 +13,7 @@ use rustc_serialize::json::Json;
 
 header!{(XBzFileName, "X-Bz-File-Name") => [String]}
 header!{(XBzContentSha1, "X-Bz-Content-Sha1") => [String]}
+header!{(XBzInfoLastModifiedEnc, "X-Bz-Info-last_modified_enc") => [String]}
 
 struct B2Upload {
     pub url: String,
@@ -54,6 +58,58 @@ fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
     Err(From::from("Bucket 'frozen' not found"))
 }
 
+pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Box<Error>> {
+    let client = Client::new();
+    let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
+
+    let body_base = format!("\"bucketId\":\"{}\",\
+                            \"maxFileCount\":2,\
+                            \"prefix\":\"{}\"", b2.bucket_id, prefix);
+    let mut body: String;
+    let mut start_filename: Option<String> = None;
+    let mut files: Vec<RemoteFile> = Vec::new();
+
+    loop {
+        if start_filename.is_some() {
+            body = format!("{{\"startFileName\":\"{}\",\
+                            {}}}", start_filename.as_ref().unwrap(), body_base)
+        } else {
+            body = format!("{{{}}}", body_base)
+        }
+        let mut reply: Response = client.post(&url)
+            .header(Authorization(b2.auth_token.clone()))
+            .body(&body)
+            .send()?;
+
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Json = Json::from_str(reply_data)?;
+
+        if !reply.status.is_success() {
+            return Err(From::from(format!("list_remote_files failed with error {}: {}",
+                                          reply.status.to_u16(),
+                                          reply_json.find("message").unwrap())));
+        }
+
+        for file in reply_json.find("files").unwrap().as_array().unwrap() {
+            let fullname = file.find("fileName").unwrap().as_string().unwrap();
+            let last_modified_enc = file.find("fileInfo").unwrap()
+                                    .find("last_modified_enc").unwrap().as_string().unwrap();
+            let last_modified = decode_time(&b2.key, last_modified_enc)?;
+            files.push(RemoteFile::new(fullname, last_modified)?)
+        }
+
+        let maybe_next = reply_json.find("nextFileName").unwrap().as_string();
+        if maybe_next.is_some() {
+            start_filename = Some(maybe_next.unwrap().to_string());
+        } else {
+            break;
+        }
+    }
+
+    return Ok(files);
+}
+
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     let client = Client::new();
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -79,13 +135,16 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     })
 }
 
-pub fn upload_file(b2: &mut B2, filename: &str, data: &[u8]) -> Result<(), Box<Error>> {
+pub fn upload_file(b2: &mut B2, filename: &str,
+                   data: &[u8], last_modified: Option<SystemTime>) -> Result<(), Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
 
     println!("About to upload {}, {} bytes", filename, data.len());
 
+    let modif_time_enc = encode_time(&b2.key, last_modified.unwrap_or(SystemTime::now())
+                                .duration_since(UNIX_EPOCH)?.as_secs());
     let b2upload = &b2.upload.as_mut().unwrap();
     let client = Client::new();
     let basic_auth = Authorization(b2upload.auth_token.clone());
@@ -95,6 +154,7 @@ pub fn upload_file(b2: &mut B2, filename: &str, data: &[u8]) -> Result<(), Box<E
         .header(ContentType("application/octet-stream".parse().unwrap()))
         .header(ContentLength(data.len() as u64))
         .header(XBzContentSha1(crypto::sha1_string(data)))
+        .header(XBzInfoLastModifiedEnc(modif_time_enc))
         .body(data)
         .send()?;
 

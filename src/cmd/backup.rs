@@ -15,8 +15,11 @@ pub fn backup(config: &Config, path: &String) -> Result<(), Box<Error>> {
     println!("Found {} roots", roots.len());
     println!("Opened root {} hash {}", root.path, root.path_hash);
 
+    println!("Listing remote files");
+    let rfiles = root.list_remote_files(&b2)?;
+
     println!("Listing local files");
-    let files = root.list_local_files()?;
+    let lfiles = root.list_local_files(&b2)?;
 
     panic!("Backup not implemented yet!");
 }

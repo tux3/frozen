@@ -1,5 +1,6 @@
 use std::io;
 use std::io::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 use rpassword;
 
 fn prompt_readline() -> String {
@@ -40,4 +41,8 @@ pub fn prompt_yes_no(msg: &str) -> bool {
             println!("Please enter 'y' or 'n' at the prompt")
         }
     }
+}
+
+pub fn to_timestamp(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH).unwrap().as_secs()
 }

@@ -7,7 +7,7 @@ use bincode;
 use bincode::rustc_serialize::{encode, decode};
 use crypto;
 use b2api;
-use super::file::LocalFile;
+use super::file::{LocalFile, RemoteFile};
 
 #[derive(Clone, RustcEncodable, RustcDecodable, PartialEq)]
 pub struct BackupRoot {
@@ -23,25 +23,31 @@ impl BackupRoot {
         }
     }
 
-    pub fn list_local_files(&self) -> Result<Vec<LocalFile>, Box<Error>> {
+    pub fn list_local_files(&self, b2: &b2api::B2) -> Result<Vec<LocalFile>, Box<Error>> {
         let path = Path::new(&self.path);
         if !path.is_dir() {
             Err(From::from(format!("{} is not a folder!", &self.path)))
         } else {
-            list_local_files(path, path)
+            list_local_files(path, path, &b2.key)
         }
+    }
+
+    pub fn list_remote_files(&self, b2: &b2api::B2) -> Result<Vec<RemoteFile>, Box<Error>> {
+        /// TODO: Use dummy prefix with dummy uploaded files and check multi iterations
+        b2api::list_remote_files(b2, &(self.path_hash.clone()+"/"))
     }
 }
 
-fn list_local_files(base: &Path, dir: &Path) -> Result<Vec<LocalFile>, Box<Error>> {
+fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key)
+                    -> Result<Vec<LocalFile>, Box<Error>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            files.append(&mut list_local_files(base, &path)?);
+            files.append(&mut list_local_files(base, &path, key)?);
         } else {
-            files.push(LocalFile::new(base, &path)?)
+            files.push(LocalFile::new(base, &path, key)?)
         }
     }
     Ok(files)
@@ -60,7 +66,7 @@ pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {
 
 pub fn save_roots(b2: &mut b2api::B2, roots: & mut Vec<BackupRoot>) -> Result<(), Box<Error>> {
     let data = encode(roots, bincode::SizeLimit::Infinite)?;
-    b2api::upload_file(b2, "backup_root", &data)?;
+    b2api::upload_file(b2, "backup_root", &data, None)?;
     Ok(())
 }
 
