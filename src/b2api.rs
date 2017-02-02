@@ -1,3 +1,5 @@
+extern crate hyper_openssl;
+
 use std::error::Error;
 use std::io::Read;
 use std::vec::Vec;
@@ -5,21 +7,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crypto::{self, encode_time, decode_time};
 use data::file::RemoteFile;
 use config::Config;
-use util;
 use hyper::client::Client;
 use hyper::client::response::Response;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
+use hyper::net::HttpsConnector;
+use hyper_openssl::OpensslClient;
 use rustc_serialize::json::Json;
 
 header!{(XBzFileName, "X-Bz-File-Name") => [String]}
 header!{(XBzContentSha1, "X-Bz-Content-Sha1") => [String]}
 header!{(XBzInfoLastModifiedEnc, "X-Bz-Info-last_modified_enc") => [String]}
 
+#[derive(Clone)]
 struct B2Upload {
     pub url: String,
     pub auth_token: String,
 }
 
+#[derive(Clone)]
 pub struct B2 {
     pub key: crypto::Key,
     pub bucket_id: String,
@@ -31,7 +36,7 @@ pub struct B2 {
 }
 
 fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
-    let client = Client::new();
+    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_buckets";
     let mut reply: Response = client.post(&url)
@@ -59,11 +64,11 @@ fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
 }
 
 pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Box<Error>> {
-    let client = Client::new();
+    let client = make_client();
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
 
     let body_base = format!("\"bucketId\":\"{}\",\
-                            \"maxFileCount\":2,\
+                            \"maxFileCount\":1000,\
                             \"prefix\":\"{}\"", b2.bucket_id, prefix);
     let mut body: String;
     let mut start_filename: Option<String> = None;
@@ -111,7 +116,7 @@ pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Bo
 }
 
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
-    let client = Client::new();
+    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_get_upload_url";
     let mut reply: Response = client.post(&url)
@@ -136,17 +141,18 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 }
 
 pub fn upload_file(b2: &mut B2, filename: &str,
-                   data: &[u8], last_modified: Option<SystemTime>) -> Result<(), Box<Error>> {
+                   data: &[u8], last_modified: Option<u64>) -> Result<(), Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
 
     println!("About to upload {}, {} bytes", filename, data.len());
 
-    let modif_time_enc = encode_time(&b2.key, last_modified.unwrap_or(SystemTime::now())
-                                .duration_since(UNIX_EPOCH)?.as_secs());
+    let last_modified = last_modified.unwrap_or(
+                                    SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+    let modif_time_enc = encode_time(&b2.key, last_modified);
     let b2upload = &b2.upload.as_mut().unwrap();
-    let client = Client::new();
+    let client = make_client();
     let basic_auth = Authorization(b2upload.auth_token.clone());
     let mut reply: Response = client.post(&b2upload.url)
         .header(basic_auth)
@@ -171,7 +177,7 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 }
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
-    let client = Client::new();
+    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.download_url.clone()+"/file/frozen/"+filename;
     let mut reply: Response = client.get(&url)
@@ -187,7 +193,7 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
 }
 
 pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
-    let client = Client::new();
+    let client = make_client();
     let basic_auth = Authorization( Basic{
         username: config.acc_id.clone(),
         password: Some(config.app_key.clone()),
@@ -219,4 +225,10 @@ pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
     };
     b2.bucket_id = get_frozen_bucket_id(&b2)?;
     Ok(b2)
+}
+
+fn make_client() -> Client {
+    let ssl = OpensslClient::new().unwrap();
+    let connector = HttpsConnector::new(ssl);
+    Client::with_connector(connector)
 }

@@ -54,9 +54,7 @@ pub fn hash_path(secret: &String, key: &Key) -> String {
     let mut data = Vec::from(secret.as_bytes());
     data.extend_from_slice(&keydata);
     let hash = hash::sha256::hash(data.as_ref());
-    let mut hash_str = hash.as_ref().to_hex();
-    hash_str.truncate(32); // Keep file names reasonably short
-    return hash_str;
+    hash.as_ref().to_hex()
 }
 
 pub fn sha1_string(data: &[u8]) -> String {

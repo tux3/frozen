@@ -4,9 +4,11 @@ version = "0.1.0"
 authors = ["tux3 <barrdetwix@gmail.com>"]
 
 [dependencies]
-hyper = "0.9"
+hyper = "0.10"
+hyper-openssl = "0.2"
 rustc-serialize = "0.3"
 bincode = "0.6.0"
-sodiumoxide = "0.0.12"
-rpassword = "0.3.0"
+sodiumoxide = "0.0.14"
+rpassword = "0.3"
 sha1 = "0.2.0"
+zstd = "0.4"

@@ -1,18 +1,20 @@
-use std::time::SystemTime;
 use std::path::{Path, PathBuf};
-use std::fs;
-use std::str::FromStr;
+use std::fs::{self, File};
 use std::error::Error;
 use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::io::Read;
 use crypto;
 use util;
 
+#[derive(Clone)]
 pub struct LocalFile {
     pub rel_path: PathBuf,
     pub rel_path_hash: String,
     pub last_modified: u64,
 }
 
+#[derive(Eq)]
 pub struct RemoteFile {
     pub rel_path_hash: String,
     pub last_modified: u64,
@@ -31,6 +33,13 @@ impl LocalFile {
     pub fn path_str(&self) -> Cow<str> {
         self.rel_path.to_string_lossy()
     }
+
+    pub fn read_all(&self, root_path: &String) -> Result<Vec<u8>, Box<Error>> {
+        let mut file : File = File::open(root_path.clone()+"/"+&self.path_str())?;
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)?;
+        return Ok(contents);
+    }
 }
 
 impl RemoteFile {
@@ -43,5 +52,27 @@ impl RemoteFile {
             rel_path_hash: elements[1].to_string(),
             last_modified: last_modified,
         })
+    }
+
+    pub fn cmp(&self, other: &LocalFile) -> Ordering {
+        self.rel_path_hash.cmp(&other.rel_path_hash)
+    }
+}
+
+impl Ord for RemoteFile {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.rel_path_hash.cmp(&other.rel_path_hash)
+    }
+}
+
+impl PartialOrd for RemoteFile {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.rel_path_hash.cmp(&other.rel_path_hash))
+    }
+}
+
+impl PartialEq for RemoteFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.rel_path_hash == other.rel_path_hash
     }
 }

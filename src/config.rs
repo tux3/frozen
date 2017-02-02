@@ -6,7 +6,9 @@ use rustc_serialize::json;
 use util::*;
 use crypto;
 
-static CONFIG_FILE_RELPATH : &'static str = ".config/frozen.json";
+static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
+pub static UPLOAD_THREADS: u8 = 8;
+pub static COMPRESSION_LEVEL: i32 = 18;
 
 pub struct Config {
     pub acc_id: String,

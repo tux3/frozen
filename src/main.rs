@@ -1,10 +1,12 @@
+#[macro_use]
+extern crate hyper;
+extern crate hyper_openssl;
 extern crate rustc_serialize;
 extern crate bincode;
 extern crate rpassword;
 extern crate sodiumoxide;
 extern crate sha1;
-#[macro_use]
-extern crate hyper;
+extern crate zstd;
 
 use std::env;
 use std::process::exit;
