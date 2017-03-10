@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fs;
 use std::thread;
 use std::time::Duration;
 use config::Config;
@@ -7,6 +8,8 @@ use net::{b2api, upload};
 use progress;
 
 pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
+    let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
+
     println!("Connecting to Backblaze B2");
     let mut b2 = &mut b2api::authenticate(config)?;
 
@@ -14,7 +17,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let mut roots = root::fetch_roots(b2);
 
     println!("Opening backup folder {}", path);
-    let root = root::open_create_root(b2, &mut roots, path)?;
+    let root = root::open_create_root(b2, &mut roots, &path)?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async(b2)?;

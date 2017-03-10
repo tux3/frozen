@@ -10,6 +10,10 @@ use progress;
 pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), Box<Error>> {
     let target = target.unwrap_or(path);
     fs::create_dir_all(target)?;
+    let mut path = path.to_string();
+    if path.ends_with("/") {
+        path.pop();
+    }
 
     println!("Connecting to Backblaze B2");
     let b2 = &b2api::authenticate(config)?;
@@ -18,7 +22,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     let mut roots = root::fetch_roots(b2);
 
     println!("Opening backup folder {}", path);
-    let root = root::open_root(&mut roots, path)?;
+    let root = root::open_root(&mut roots, &path)?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async_at(b2, target)?;
