@@ -1,4 +1,7 @@
 use std::thread;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::Path;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
 use data::file::{RemoteFile};
 use data::root::BackupRoot;
@@ -39,15 +42,15 @@ impl DownloadThread {
             }
             let file = file.unwrap();
 
-            // TODO: Download and unpack
             tx_progress.send(Progress::Started(file.rel_path.clone())).unwrap();
 
             tx_progress.send(Progress::Downloading(0)).unwrap();
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let encrypted = b2api::download_file(&b2, &filehash);
             if encrypted.is_err() {
-                println!("Failed to download file: {}", file.rel_path);
-                // TODO: Send error as progress
+                tx_progress.send(Progress::Error(
+                    format!("Failed to download file \"{}\": {}", file.rel_path,
+                            encrypted.err().unwrap()))).unwrap();
                 continue;
             }
             let mut encrypted = encrypted.unwrap();
@@ -56,8 +59,9 @@ impl DownloadThread {
             let compressed = crypto::decrypt(&encrypted, &b2.key);
             encrypted.clear();
             if compressed.is_err() {
-                println!("Failed to decrypt file: {}", file.rel_path);
-                // TODO: Send error as progress
+                tx_progress.send(Progress::Error(
+                    format!("Failed to decrypt file \"{}\": {}", file.rel_path,
+                            compressed.err().unwrap()))).unwrap();
                 continue;
             }
             let mut compressed = compressed.unwrap();
@@ -66,12 +70,17 @@ impl DownloadThread {
             let contents = zstd::decode_all(compressed.as_slice());
             compressed.clear();
             if contents.is_err() {
-                println!("Failed to decompress file: {}", file.rel_path);
-                // TODO: Send error as progress
+                tx_progress.send(Progress::Error(
+                    format!("Failed to decompress file \"{}\": {}", file.rel_path,
+                            contents.err().unwrap()))).unwrap();
                 continue;
             }
 
             // TODO: Extract filename and save file
+            let save_path = target.to_owned()+"/"+&file.rel_path;
+            fs::create_dir_all(Path::new(&save_path).parent().unwrap()).unwrap();
+            let mut fd = File::create(save_path).unwrap();
+            fd.write_all(contents.unwrap().as_ref()).unwrap();
 
             tx_progress.send(Progress::Transferred(file.rel_path.clone())).unwrap();
         }

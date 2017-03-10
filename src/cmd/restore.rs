@@ -61,7 +61,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     }
     list_thread.join().unwrap();
 
-    panic!("Restore not implemented yet!");
+    Ok(())
 }
 
 /// Receives and displays progress information. Removes dead threads from the list.
