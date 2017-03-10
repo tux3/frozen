@@ -13,12 +13,14 @@ use std::process::exit;
 
 mod cmd;
 mod config;
-mod b2api;
+mod net;
 mod util;
 mod crypto;
 mod data;
+mod progress;
+mod vt100;
 
-fn help_and_die(selfname: &String) -> ! {
+fn help_and_die(selfname: &str) -> ! {
     println!("Usage: {} command path", selfname);
     exit(1);
 }
@@ -40,9 +42,15 @@ fn main() {
         help_and_die(&args[0]);
     }
 
+    let target_path = if args.len() >= 4 {
+        Some(args[3].as_str())
+    } else {
+        None
+    };
+
     match args[1].as_ref() {
         "backup" => cmd::backup(&config, &args[2]),
-        "restore" => cmd::restore(&config, &args[2]),
+        "restore" => cmd::restore(&config, &args[2], target_path),
         _ => help_and_die(&args[0]),
     }.unwrap_or_else(|err| {
         println!("{} failed: {}", args[1], err);

@@ -4,15 +4,16 @@ use sodiumoxide::crypto::hash;
 use sodiumoxide::crypto::pwhash;
 use sodiumoxide::crypto::secretbox;
 use rustc_serialize::hex::{ToHex, FromHex};
-use std::str::FromStr;
+use bincode;
+use bincode::rustc_serialize::{encode, decode};
 use sha1::Sha1;
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
 /// Derives a secret key from the user password and the account ID (used as a salt)
-pub fn derive_key(pwd: &String, acc_id: &String) -> Key {
+pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
     let mut key = Key([0; secretbox::KEYBYTES]);
-    let hash = hash::sha256::hash(&Vec::from(acc_id.as_str()));
+    let hash = hash::sha256::hash(&Vec::from(acc_id));
     let salt = pwhash::Salt::from_slice(hash.as_ref()).unwrap();
     {
         let secretbox::Key(ref mut kb) = key;
@@ -20,15 +21,15 @@ pub fn derive_key(pwd: &String, acc_id: &String) -> Key {
                            pwhash::OPSLIMIT_INTERACTIVE,
                            pwhash::MEMLIMIT_INTERACTIVE).unwrap();
     }
-    return key;
+    key
 }
 
 pub fn encrypt(plaintext: &[u8], key: &Key) -> Vec<u8> {
     let nonce = secretbox::gen_nonce();
-    let mut cipher = secretbox::seal(&plaintext, &nonce, &key);
+    let mut cipher = secretbox::seal(plaintext, &nonce, key);
     let secretbox::Nonce(nonceb) = nonce;
     cipher.extend_from_slice(&nonceb);
-    return cipher;
+    cipher
 }
 
 pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
@@ -41,7 +42,7 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
         *dst = *src;
     }
 
-    let maybe_plain = secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), &key);
+    let maybe_plain = secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key);
     if maybe_plain.is_ok() {
         Ok(maybe_plain.unwrap())
     } else {
@@ -49,7 +50,7 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
     }
 }
 
-pub fn hash_path(secret: &String, key: &Key) -> String {
+pub fn hash_path(secret: &str, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut data = Vec::from(secret.as_bytes());
     data.extend_from_slice(&keydata);
@@ -63,12 +64,13 @@ pub fn sha1_string(data: &[u8]) -> String {
     hash.digest().to_string()
 }
 
-pub fn encode_time(key: &Key, time: u64) -> String {
-    let data = format!("{}", time);
-    encrypt(&data.as_bytes(), key).to_hex()
+pub fn encode_meta(key: &Key, filename: &str, time: u64) -> String {
+    let data = (filename, time);
+    let encoded = encode(&data, bincode::SizeLimit::Infinite).unwrap();
+    encrypt(&encoded, key).to_hex()
 }
 
-pub fn decode_time(key: &Key, time_enc: &str) -> Result<u64, Box<Error>> {
-    let plain = decrypt(&time_enc.from_hex()?, key)?;
-    Ok(u64::from_str(&String::from_utf8(plain)?)?)
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64), Box<Error>> {
+    let plain = decrypt(&meta_enc.from_hex()?, key)?;
+    Ok(decode(&plain[..]).unwrap())
 }

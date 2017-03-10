@@ -8,7 +8,8 @@ use crypto;
 
 static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
 pub static UPLOAD_THREADS: u8 = 8;
-pub static COMPRESSION_LEVEL: i32 = 18;
+pub static DOWNLOAD_THREADS: u8 = 12;
+pub static COMPRESSION_LEVEL: i32 = 20;
 
 pub struct Config {
     pub acc_id: String,
@@ -24,7 +25,7 @@ struct ConfigFile {
 
 fn get_config_file_path() -> String {
     let home = env::var("HOME").unwrap();
-    return home+"/"+CONFIG_FILE_RELPATH;
+    home+"/"+CONFIG_FILE_RELPATH
 }
 
 pub fn read_config() -> Result<Config, Box<Error>> {
@@ -74,7 +75,7 @@ pub fn save_config(config : &Config) -> Result<(), Box<Error>> {
     };
     let encoded = json::encode(&config_file)?;
     file.set_len(0)?;
-    file.write(encoded.as_bytes())?;
+    file.write_all(encoded.as_bytes())?;
     file.flush()?;
     Ok(())
 }

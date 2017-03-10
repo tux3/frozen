@@ -1,13 +1,12 @@
-extern crate hyper_openssl;
-
 use std::error::Error;
 use std::io::Read;
 use std::vec::Vec;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crypto::{self, encode_time, decode_time};
+use crypto::{self, encode_meta, decode_meta};
 use data::file::RemoteFile;
 use config::Config;
-use hyper::client::Client;
+use progress::ProgressDataReader;
+use hyper::client::{Client, Body};
 use hyper::client::response::Response;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
 use hyper::net::HttpsConnector;
@@ -16,10 +15,10 @@ use rustc_serialize::json::Json;
 
 header!{(XBzFileName, "X-Bz-File-Name") => [String]}
 header!{(XBzContentSha1, "X-Bz-Content-Sha1") => [String]}
-header!{(XBzInfoLastModifiedEnc, "X-Bz-Info-last_modified_enc") => [String]}
+header!{(XBzEncMeta, "X-Bz-Info-enc_meta") => [String]}
 
 #[derive(Clone)]
-struct B2Upload {
+pub struct B2Upload {
     pub url: String,
     pub auth_token: String,
 }
@@ -32,7 +31,7 @@ pub struct B2 {
     pub auth_token: String,
     pub api_url: String,
     pub download_url: String,
-    upload: Option<B2Upload>,
+    pub upload: Option<B2Upload>,
 }
 
 fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
@@ -63,7 +62,7 @@ fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
     Err(From::from("Bucket 'frozen' not found"))
 }
 
-pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Box<Error>> {
+pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<Error>> {
     let client = make_client();
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
 
@@ -98,10 +97,10 @@ pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Bo
 
         for file in reply_json.find("files").unwrap().as_array().unwrap() {
             let fullname = file.find("fileName").unwrap().as_string().unwrap();
-            let last_modified_enc = file.find("fileInfo").unwrap()
-                                    .find("last_modified_enc").unwrap().as_string().unwrap();
-            let last_modified = decode_time(&b2.key, last_modified_enc)?;
-            files.push(RemoteFile::new(fullname, last_modified)?)
+            let enc_meta = file.find("fileInfo").unwrap()
+                                    .find("enc_meta").unwrap().as_string().unwrap();
+            let (filename, last_modified) = decode_meta(&b2.key, enc_meta)?;
+            files.push(RemoteFile::new(&filename, &fullname, last_modified)?)
         }
 
         let maybe_next = reply_json.find("nextFileName").unwrap().as_string();
@@ -112,7 +111,7 @@ pub fn list_remote_files(b2: &B2, prefix: &String) -> Result<Vec<RemoteFile>, Bo
         }
     }
 
-    return Ok(files);
+    Ok(files)
 }
 
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
@@ -141,34 +140,43 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 }
 
 pub fn upload_file(b2: &mut B2, filename: &str,
-                   data: &[u8], last_modified: Option<u64>) -> Result<(), Box<Error>> {
+                   data: &mut ProgressDataReader,
+                   last_modified: Option<u64>,
+                   plain_filename: Option<&str>) -> Result<(), Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
 
-    println!("About to upload {}, {} bytes", filename, data.len());
+    let mut reply: Response;
 
-    let last_modified = last_modified.unwrap_or(
-                                    SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
-    let modif_time_enc = encode_time(&b2.key, last_modified);
-    let b2upload = &b2.upload.as_mut().unwrap();
-    let client = make_client();
-    let basic_auth = Authorization(b2upload.auth_token.clone());
-    let mut reply: Response = client.post(&b2upload.url)
-        .header(basic_auth)
-        .header(XBzFileName(filename.to_string()))
-        .header(ContentType("application/octet-stream".parse().unwrap()))
-        .header(ContentLength(data.len() as u64))
-        .header(XBzContentSha1(crypto::sha1_string(data)))
-        .header(XBzInfoLastModifiedEnc(modif_time_enc))
-        .body(data)
-        .send()?;
+    {
+        let last_modified = last_modified.unwrap_or_else(||
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+        let plain_filename = plain_filename.unwrap_or_else(|| filename);
+        let meta_enc = encode_meta(&b2.key, &plain_filename, last_modified);
+        let client = make_client();
+        let sha1 = crypto::sha1_string(data.as_slice());
+        let data_size = data.len() as u64;
+        let body = Body::SizedBody(data, data_size);
+        let b2upload = &b2.upload.as_mut().unwrap();
+        let basic_auth = Authorization(b2upload.auth_token.clone());
+        reply = client.post(&b2upload.url)
+            .header(basic_auth)
+            .header(XBzFileName(filename.to_string()))
+            .header(ContentType("application/octet-stream".parse().unwrap()))
+            .header(ContentLength(data_size))
+            .header(XBzContentSha1(sha1))
+            .header(XBzEncMeta(meta_enc))
+            .body(body)
+            .send()?;
+    }
 
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
     let reply_json: Json = Json::from_str(reply_data)?;
 
     if !reply.status.is_success() {
+        b2.upload = None;
         return Err(From::from(format!("upload_file failed with error {}: {}",
                                       reply.status.to_u16(),
                                       reply_json.find("message").unwrap())));
@@ -189,7 +197,7 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     }
     let mut reply_data = Vec::new();
     reply.read_to_end(&mut reply_data)?;
-    return Ok(reply_data);
+    Ok(reply_data)
 }
 
 pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {

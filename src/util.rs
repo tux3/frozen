@@ -10,7 +10,7 @@ fn prompt_readline() -> String {
     if len > 0 {
         input.truncate(len);
     }
-    return input;
+    input
 }
 
 pub fn prompt(msg: &str) -> String {
@@ -22,9 +22,7 @@ pub fn prompt(msg: &str) -> String {
 pub fn prompt_password(msg: &str) -> String {
     print!("{}: ", msg);
     io::stdout().flush().unwrap();
-    rpassword::read_password().unwrap_or_else(|_| {
-        return prompt_readline();
-    })
+    rpassword::read_password().unwrap_or_else(|_| prompt_readline())
 }
 
 pub fn prompt_yes_no(msg: &str) -> bool {

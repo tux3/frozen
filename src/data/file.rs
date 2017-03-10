@@ -14,8 +14,9 @@ pub struct LocalFile {
     pub last_modified: u64,
 }
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 pub struct RemoteFile {
+    pub rel_path: String,
     pub rel_path_hash: String,
     pub last_modified: u64,
 }
@@ -34,27 +35,28 @@ impl LocalFile {
         self.rel_path.to_string_lossy()
     }
 
-    pub fn read_all(&self, root_path: &String) -> Result<Vec<u8>, Box<Error>> {
-        let mut file : File = File::open(root_path.clone()+"/"+&self.path_str())?;
+    pub fn read_all(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
+        let mut file : File = File::open(root_path.to_owned()+"/"+&self.path_str())?;
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)?;
-        return Ok(contents);
+        Ok(contents)
     }
 }
 
 impl RemoteFile {
-    pub fn new(fullname: &str, last_modified: u64) -> Result<RemoteFile, Box<Error>> {
+    pub fn new(filename: &str, fullname: &str, last_modified: u64) -> Result<RemoteFile, Box<Error>> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
             return Err(From::from("Invalid remote file name, expected exactly one slash"));
         }
         Ok(RemoteFile{
+            rel_path: filename.to_string(),
             rel_path_hash: elements[1].to_string(),
             last_modified: last_modified,
         })
     }
 
-    pub fn cmp(&self, other: &LocalFile) -> Ordering {
+    pub fn cmp_local(&self, other: &LocalFile) -> Ordering {
         self.rel_path_hash.cmp(&other.rel_path_hash)
     }
 }
