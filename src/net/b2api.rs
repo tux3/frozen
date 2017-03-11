@@ -67,7 +67,7 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
 
     let body_base = format!("\"bucketId\":\"{}\",\
-                            \"maxFileCount\":1000,\
+                            \"maxFileCount\":10000,\
                             \"prefix\":\"{}\"", b2.bucket_id, prefix);
     let mut body: String;
     let mut start_filename: Option<String> = None;
