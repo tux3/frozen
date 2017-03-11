@@ -12,7 +12,7 @@ pub fn list(config: &Config) -> Result<(), Box<Error>> {
 
     println!("Backed-up folders:");
     for root in roots {
-        println!("{}", root.path);
+        println!("{}\t{}", root.path_hash, root.path);
     }
 
     Ok(())
