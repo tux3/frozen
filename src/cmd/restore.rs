@@ -8,12 +8,18 @@ use net::{b2api, download};
 use progress;
 
 pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), Box<Error>> {
-    let target = target.unwrap_or(path);
-    fs::create_dir_all(target)?;
     let mut path = path.to_string();
-    if path.ends_with("/") {
-        path.pop();
-    }
+    let target = if target.is_none() {
+        fs::create_dir_all(&path)?;
+        path = fs::canonicalize(&path)?.to_string_lossy().into_owned();
+        &path
+    } else {
+        fs::create_dir_all(target.unwrap())?;
+        if let Ok(canon_path) = fs::canonicalize(&path) {
+            path = canon_path.to_string_lossy().into_owned();
+        }
+        target.unwrap()
+    };
 
     println!("Connecting to Backblaze B2");
     let b2 = &b2api::authenticate(config)?;
@@ -56,12 +62,28 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
         handle_progress(&mut download_threads);
     }
 
-    for thread in &download_threads {
-        thread.tx.send(None)?;
+    // Tell our threads to stop as they become idle
+    let mut thread_id = download_threads.len() - 1;
+    loop {
+        if thread_id < download_threads.len() {
+            let result = &download_threads[thread_id].tx.try_send(None);
+            if result.is_err() {
+                handle_progress(&mut download_threads);
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        }
+
+        if thread_id == 0 {
+            break;
+        } else {
+            thread_id -= 1;
+        }
     }
 
     while !download_threads.is_empty() {
         handle_progress(&mut download_threads);
+        thread::sleep(Duration::from_millis(50));
     }
     list_thread.join().unwrap();
 

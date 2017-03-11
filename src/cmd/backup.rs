@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fs;
+use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use config::Config;
@@ -9,6 +10,9 @@ use progress;
 
 pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
+    if !Path::new(&path).is_dir() {
+        return Err(From::from(format!("{} is not a folder!", &path)))
+    }
 
     println!("Connecting to Backblaze B2");
     let mut b2 = &mut b2api::authenticate(config)?;
@@ -46,12 +50,28 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
         }
     }
 
-    for thread in &upload_threads {
-        thread.tx.send(None)?;
+    // Tell our threads to stop as they become idle
+    let mut thread_id = upload_threads.len() - 1;
+    loop {
+        if thread_id < upload_threads.len() {
+            let result = &upload_threads[thread_id].tx.try_send(None);
+            if result.is_err() {
+                handle_progress(&mut upload_threads);
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        }
+
+        if thread_id == 0 {
+            break;
+        } else {
+            thread_id -= 1;
+        }
     }
 
     while !upload_threads.is_empty() {
         handle_progress(&mut upload_threads);
+        thread::sleep(Duration::from_millis(50));
     }
     list_thread.join().unwrap();
 

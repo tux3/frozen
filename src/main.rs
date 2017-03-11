@@ -7,6 +7,7 @@ extern crate rpassword;
 extern crate sodiumoxide;
 extern crate sha1;
 extern crate zstd;
+extern crate pretty_bytes;
 
 use std::env;
 use std::process::exit;

@@ -65,7 +65,7 @@ impl UploadThread {
             let encrypted = crypto::encrypt(&compressed, &b2.key);
             compressed.clear();
 
-            tx_progress.send(Progress::Uploading(0)).unwrap();
+            tx_progress.send(Progress::Uploading(0, encrypted.len() as u64)).unwrap();
 
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let mut progress_reader = ProgressDataReader::new(encrypted, Some(tx_progress.clone()));

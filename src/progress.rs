@@ -2,6 +2,7 @@ use vt100::*;
 use std::io::{stdout, Write, Read, Error};
 use std::cmp;
 use std::sync::mpsc::Sender;
+use pretty_bytes::converter::convert;
 
 pub enum Progress {
     Started(String),
@@ -9,7 +10,7 @@ pub enum Progress {
     Transferred(String),
     Terminated,
     Downloading(u8),
-    Uploading(u8),
+    Uploading(u8, u64),
     Compressing(u8),
     Decompressing(u8),
     Encrypting(u8),
@@ -50,7 +51,8 @@ impl Read for ProgressDataReader {
         self.pos += read_size;
         if self.tx_progress.is_some() {
             let progress = (self.pos*100/self.len()) as u8;
-            self.tx_progress.as_ref().unwrap().send(Progress::Uploading(progress)).unwrap();
+            self.tx_progress.as_ref().unwrap()
+                            .send(Progress::Uploading(progress, self.len() as u64)).unwrap();
         }
         Ok(read_size)
     }
@@ -69,20 +71,21 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
 
     let off = thread_id+1;
     match *progress {
-        Started(ref str) => rewrite_at(off, VT100::StyleActive, &format!("Started \t\t{}", str)),
-        Uploading(ref n) => write_at(off, VT100::StyleActive, &format!("Uploaded {}%", n)),
-        Downloading(ref n) => write_at(off, VT100::StyleActive, &format!("Downloaded {}%", n)),
-        Compressing(_) => write_at(off, VT100::StyleActive,   "Compressing    "),
-        Decompressing(_) => write_at(off, VT100::StyleActive, "Decompressing  "),
-        Encrypting(_) => write_at(off, VT100::StyleActive,    "Encrypting     "),
-        Decrypting(_) => write_at(off, VT100::StyleActive,    "Decrypting     "),
+        Started(ref str) => rewrite_at(off, VT100::StyleActive, &format!("Started \t\t\t{}", str)),
+        Uploading(ref n, ref s) => write_at(off, VT100::StyleActive,
+                                            &format!("Uploaded {}% of {}", n, convert(*s as f64))),
+        Downloading(ref n) => write_at(off, VT100::StyleActive, &format!("Downloaded     {}%", n)),
+        Compressing(_) => write_at(off, VT100::StyleActive,   "Compressing        "),
+        Decompressing(_) => write_at(off, VT100::StyleActive, "Decompressing      "),
+        Encrypting(_) => write_at(off, VT100::StyleActive,    "Encrypting         "),
+        Decrypting(_) => write_at(off, VT100::StyleActive,    "Decrypting         "),
         Error(ref str) => {
-            rewrite_at(off, VT100::StyleActive,               "Done           ");
+            rewrite_at(off, VT100::StyleActive,               "Done               ");
             insert_at(num_threads, VT100::StyleError, &format!("Error: {}", str));
         },
         Transferred(ref str) => {
-            rewrite_at(off, VT100::StyleActive,               "Done           ");
-            insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t{}", str));
+            rewrite_at(off, VT100::StyleActive,               "Done               ");
+            insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
         },
         Terminated => {
             remove_at(off);

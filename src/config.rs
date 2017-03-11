@@ -7,8 +7,8 @@ use util::*;
 use crypto;
 
 static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
-pub static UPLOAD_THREADS: u8 = 8;
-pub static DOWNLOAD_THREADS: u8 = 12;
+pub static UPLOAD_THREADS: u8 = 4;
+pub static DOWNLOAD_THREADS: u8 = 8;
 pub static COMPRESSION_LEVEL: i32 = 20;
 
 pub struct Config {
