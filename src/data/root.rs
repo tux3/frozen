@@ -12,7 +12,7 @@ use data::file::{LocalFile, RemoteFile};
 use net::b2api;
 use net::upload::UploadThread;
 use net::download::DownloadThread;
-use config;
+use config::Config;
 use progress::ProgressDataReader;
 
 #[derive(Clone, RustcEncodable, RustcDecodable, PartialEq)]
@@ -55,12 +55,12 @@ impl BackupRoot {
         Ok(files)
     }
 
-    pub fn start_upload_threads(&self, b2: &b2api::B2) -> Vec<UploadThread> {
-        (0..config::UPLOAD_THREADS).map(|_| UploadThread::new(self, b2)).collect()
+    pub fn start_upload_threads(&self, b2: &b2api::B2, config: &Config) -> Vec<UploadThread> {
+        (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config)).collect()
     }
 
-    pub fn start_download_threads(&self, b2: &b2api::B2, target: &str) -> Vec<DownloadThread> {
-        (0..config::DOWNLOAD_THREADS).map(|_| DownloadThread::new(self, b2, target)).collect()
+    pub fn start_download_threads(&self, b2: &b2api::B2, config: &Config, target: &str) -> Vec<DownloadThread> {
+        (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
     }
 }
 

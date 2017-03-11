@@ -37,7 +37,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     let mut rfiles = root.list_remote_files(b2)?;
 
     println!("Starting download");
-    let mut download_threads = root.start_download_threads(b2, target);
+    let mut download_threads = root.start_download_threads(b2, config, target);
 
     progress::start_output(download_threads.len());
 
@@ -57,7 +57,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
                 }
             }
             handle_progress(&mut download_threads);
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(20));
         }
         handle_progress(&mut download_threads);
     }
@@ -69,7 +69,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 handle_progress(&mut download_threads);
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(20));
                 continue;
             }
         }
@@ -83,7 +83,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
 
     while !download_threads.is_empty() {
         handle_progress(&mut download_threads);
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(20));
     }
     list_thread.join().unwrap();
 

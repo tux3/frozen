@@ -3,10 +3,10 @@ use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
 use data::file::{LocalFile};
 use data::root::BackupRoot;
 use net::b2api;
+use config::Config;
 use crypto;
 use progress::{Progress, ProgressDataReader};
 use zstd;
-use config;
 
 pub struct UploadThread {
     pub tx: SyncSender<Option<LocalFile>>,
@@ -15,14 +15,15 @@ pub struct UploadThread {
 }
 
 impl UploadThread {
-    pub fn new(root: &BackupRoot, b2: &b2api::B2) -> UploadThread {
+    pub fn new(root: &BackupRoot, b2: &b2api::B2, config: &Config) -> UploadThread {
         let root = root.clone();
+        let config = config.clone();
         let mut b2: b2api::B2 = b2.to_owned();
         b2.upload = None;
         let (tx_file, rx_file) = sync_channel(1);
         let (tx_progress, rx_progress) = channel();
         let handle = thread::spawn(move || {
-            UploadThread::upload(root, b2, rx_file, tx_progress)
+            UploadThread::upload(root, b2, config, rx_file, tx_progress)
         });
 
         UploadThread {
@@ -32,7 +33,7 @@ impl UploadThread {
         }
     }
 
-    fn upload(root: BackupRoot, mut b2: b2api::B2,
+    fn upload(root: BackupRoot, mut b2: b2api::B2, config: Config,
               rx_file: Receiver<Option<LocalFile>>, tx_progress: Sender<Progress>) {
         for file in rx_file {
             if file.is_none() {
@@ -52,7 +53,7 @@ impl UploadThread {
             let mut contents = contents.unwrap();
 
             tx_progress.send(Progress::Compressing(0)).unwrap();
-            let compressed = zstd::encode_all(contents.as_slice(), config::COMPRESSION_LEVEL);
+            let compressed = zstd::encode_all(contents.as_slice(), config.compression_level);
             contents.clear();
             if compressed.is_err() {
                 tx_progress.send(Progress::Error(

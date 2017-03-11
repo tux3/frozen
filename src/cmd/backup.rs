@@ -30,7 +30,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let rfiles = root.list_remote_files(b2)?;
 
     println!("Starting upload");
-    let mut upload_threads = root.start_upload_threads(b2);
+    let mut upload_threads = root.start_upload_threads(b2, config);
 
     progress::start_output(upload_threads.len());
 
@@ -44,7 +44,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
                     }
                 }
                 handle_progress(&mut upload_threads);
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(20));
             }
             handle_progress(&mut upload_threads);
         }
@@ -57,7 +57,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 handle_progress(&mut upload_threads);
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(20));
                 continue;
             }
         }
@@ -71,7 +71,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
 
     while !upload_threads.is_empty() {
         handle_progress(&mut upload_threads);
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(20));
     }
     list_thread.join().unwrap();
 
