@@ -107,4 +107,5 @@ fn handle_progress(threads: &mut Vec<upload::UploadThread>) {
 
         thread_id += 1;
     }
+    progress::flush();
 }

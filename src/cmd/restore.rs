@@ -117,4 +117,5 @@ fn handle_progress(threads: &mut Vec<download::DownloadThread>) {
 
         thread_id += 1;
     }
+    progress::flush();
 }

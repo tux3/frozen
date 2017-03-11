@@ -91,6 +91,8 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
             remove_at(off);
         }
     };
+}
 
+pub fn flush() {
     stdout().flush().unwrap();
 }
