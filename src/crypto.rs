@@ -4,12 +4,20 @@ use sodiumoxide::crypto::hash;
 use sodiumoxide::crypto::pwhash;
 use sodiumoxide::crypto::secretbox;
 use rustc_serialize::hex::{ToHex, FromHex};
+use rustc_serialize::base64::{self, ToBase64, FromBase64};
 use bincode;
 use bincode::rustc_serialize::{encode, decode};
 use sha1::Sha1;
 use libsodium_sys;
 
 pub use sodiumoxide::crypto::secretbox::Key;
+
+const BASE64_CONFIG: base64::Config = base64::Config {
+    char_set: base64::CharacterSet::UrlSafe,
+    newline: base64::Newline::LF,
+    pad: true,
+    line_length: None,
+};
 
 /// Derives a secret key from the user password and the account ID (used as a salt)
 pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
@@ -79,11 +87,17 @@ pub fn sha1_string(data: &[u8]) -> String {
 pub fn encode_meta(key: &Key, filename: &str, time: u64, is_symlink: bool) -> String {
     let data = (filename, time, is_symlink);
     let encoded = encode(&data, bincode::SizeLimit::Infinite).unwrap();
-    encrypt(&encoded, key).to_hex()
+    encrypt(&encoded, key).to_base64(BASE64_CONFIG)
 }
 
 pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, bool), Box<Error>> {
-    let plain = decrypt(&meta_enc.from_hex()?, key)?;
+    let data = if let Ok(decoded) = meta_enc.from_hex() {
+        // Old hex format (have to try it first!)
+        decoded
+    } else {
+        meta_enc.from_base64()?
+    };
+    let plain = decrypt(&data, key)?;
     let meta = decode(&plain[..]);
     if meta.is_ok() {
         Ok(meta.unwrap())
