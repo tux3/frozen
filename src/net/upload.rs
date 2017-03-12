@@ -50,7 +50,13 @@ impl UploadThread {
             let filename = file.path_str().into_owned();
             tx_progress.send(Progress::Started(filename.clone())).unwrap();
 
-            let contents = file.read_all(&root.path);
+            let is_symlink = file.is_symlink(&root.path).unwrap_or(false);
+            let contents = if is_symlink {
+                file.readlink(&root.path)
+            } else {
+                file.read_all(&root.path)
+            };
+
             if contents.is_err() {
                 tx_progress.send(Progress::Error(
                                 format!("Failed to read file: {}", filename))).unwrap();
@@ -78,8 +84,8 @@ impl UploadThread {
 
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let mut progress_reader = ProgressDataReader::new(encrypted, Some(tx_progress.clone()));
-            let err = b2api::upload_file(&mut b2, &filehash, &mut progress_reader,
-                                         Some(file.last_modified), Some(&filename));
+            let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified, is_symlink);
+            let err = b2api::upload_file(&mut b2, &filehash, &mut progress_reader, Some(enc_meta));
             if err.is_err() {
                 tx_progress.send(Progress::Error(
                                 format!("Failed to upload file \"{}\": {}", filename,

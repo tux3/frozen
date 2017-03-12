@@ -99,8 +99,8 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
             let fullname = file.find("fileName").unwrap().as_string().unwrap();
             let enc_meta = file.find("fileInfo").unwrap()
                                     .find("enc_meta").unwrap().as_string().unwrap();
-            let (filename, last_modified) = decode_meta(&b2.key, enc_meta)?;
-            files.push(RemoteFile::new(&filename, &fullname, last_modified)?)
+            let (filename, last_modified, is_symlink) = decode_meta(&b2.key, enc_meta)?;
+            files.push(RemoteFile::new(&filename, &fullname, last_modified, is_symlink)?)
         }
 
         let maybe_next = reply_json.find("nextFileName").unwrap().as_string();
@@ -189,8 +189,7 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 
 pub fn upload_file(b2: &mut B2, filename: &str,
                    data: &mut ProgressDataReader,
-                   last_modified: Option<u64>,
-                   plain_filename: Option<&str>) -> Result<(), Box<Error>> {
+                   enc_meta: Option<String>) -> Result<(), Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
@@ -198,10 +197,12 @@ pub fn upload_file(b2: &mut B2, filename: &str,
     let mut reply: Response;
 
     {
-        let last_modified = last_modified.unwrap_or_else(||
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-        let plain_filename = plain_filename.unwrap_or_else(|| filename);
-        let meta_enc = encode_meta(&b2.key, &plain_filename, last_modified);
+        let enc_meta = if enc_meta.is_some() {
+            enc_meta.unwrap()
+        } else {
+            let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            encode_meta(&b2.key, &filename, last_modified, false)
+        };
         let client = make_client();
         let sha1 = crypto::sha1_string(data.as_slice());
         let data_size = data.len() as u64;
@@ -214,7 +215,7 @@ pub fn upload_file(b2: &mut B2, filename: &str,
             .header(ContentType("application/octet-stream".parse().unwrap()))
             .header(ContentLength(data_size))
             .header(XBzContentSha1(sha1))
-            .header(XBzEncMeta(meta_enc))
+            .header(XBzEncMeta(enc_meta))
             .body(body)
             .send()?;
     }

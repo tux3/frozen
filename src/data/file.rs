@@ -19,6 +19,7 @@ pub struct RemoteFile {
     pub rel_path: String,
     pub rel_path_hash: String,
     pub last_modified: u64,
+    pub is_symlink: bool,
 }
 
 impl LocalFile {
@@ -33,6 +34,16 @@ impl LocalFile {
 
     pub fn path_str(&self) -> Cow<str> {
         self.rel_path.to_string_lossy()
+    }
+
+    pub fn is_symlink(&self, root_path: &str) -> Result<bool, Box<Error>> {
+        let fullpath = root_path.to_owned()+"/"+&self.path_str();
+        Ok(fs::symlink_metadata(fullpath)?.file_type().is_symlink())
+    }
+
+    pub fn readlink(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
+        let fullpath = root_path.to_owned()+"/"+&self.path_str();
+        Ok(Vec::from(fs::read_link(fullpath)?.to_str().unwrap().as_bytes()))
     }
 
     pub fn read_all(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
@@ -54,7 +65,8 @@ impl LocalFile {
 }
 
 impl RemoteFile {
-    pub fn new(filename: &str, fullname: &str, last_modified: u64) -> Result<RemoteFile, Box<Error>> {
+    pub fn new(filename: &str, fullname: &str, last_modified: u64, is_symlink: bool)
+            -> Result<RemoteFile, Box<Error>> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
             return Err(From::from("Invalid remote file name, expected exactly one slash"));
@@ -63,6 +75,7 @@ impl RemoteFile {
             rel_path: filename.to_string(),
             rel_path_hash: elements[1].to_string(),
             last_modified: last_modified,
+            is_symlink: is_symlink,
         })
     }
 

@@ -76,13 +76,20 @@ pub fn sha1_string(data: &[u8]) -> String {
     hash.digest().to_string()
 }
 
-pub fn encode_meta(key: &Key, filename: &str, time: u64) -> String {
-    let data = (filename, time);
+pub fn encode_meta(key: &Key, filename: &str, time: u64, is_symlink: bool) -> String {
+    let data = (filename, time, is_symlink);
     let encoded = encode(&data, bincode::SizeLimit::Infinite).unwrap();
     encrypt(&encoded, key).to_hex()
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64), Box<Error>> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, bool), Box<Error>> {
     let plain = decrypt(&meta_enc.from_hex()?, key)?;
-    Ok(decode(&plain[..]).unwrap())
+    let meta = decode(&plain[..]);
+    if meta.is_ok() {
+        Ok(meta.unwrap())
+    } else {
+        // Old format
+        let (filename, time): (String, u64) = decode(&plain[..]).unwrap();
+        Ok((filename, time, false))
+    }
 }

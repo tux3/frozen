@@ -1,5 +1,6 @@
 use std::thread;
 use std::fs::{self, File};
+use std::os::unix::fs::symlink;
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
@@ -81,11 +82,17 @@ impl DownloadThread {
                             contents.err().unwrap()))).unwrap();
                 continue;
             }
+            let contents = contents.unwrap();
 
             let save_path = target.to_owned()+"/"+&file.rel_path;
             fs::create_dir_all(Path::new(&save_path).parent().unwrap()).unwrap();
-            let mut fd = File::create(save_path).unwrap();
-            fd.write_all(contents.unwrap().as_ref()).unwrap();
+            if file.is_symlink {
+                let link_target = String::from_utf8(contents).unwrap();
+                symlink(link_target, save_path).unwrap();
+            } else {
+                let mut fd = File::create(save_path).unwrap();
+                fd.write_all(contents.as_ref()).unwrap();
+            }
 
             tx_progress.send(Progress::Transferred(file.rel_path.clone())).unwrap();
         }

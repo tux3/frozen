@@ -95,7 +95,7 @@ pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {
 pub fn save_roots(b2: &mut b2api::B2, roots: & mut Vec<BackupRoot>) -> Result<(), Box<Error>> {
     let data = encode(roots, bincode::SizeLimit::Infinite)?;
     let mut data_reader = ProgressDataReader::new(data, None);
-    b2api::upload_file(b2, "backup_root", &mut data_reader, None, None)?;
+    b2api::upload_file(b2, "backup_root", &mut data_reader, None)?;
     Ok(())
 }
 
