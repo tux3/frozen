@@ -27,7 +27,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let (lfiles_rx, list_thread) = root.list_local_files_async(b2)?;
 
     println!("Listing remote files");
-    let rfiles = root.list_remote_files(b2)?;
+    let mut rfiles = root.list_remote_files(b2)?;
 
     println!("Starting upload");
     let mut upload_threads = root.start_upload_threads(b2, config);
@@ -47,6 +47,9 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
                 thread::sleep(Duration::from_millis(20));
             }
             handle_progress(&mut upload_threads);
+        }
+        if let Ok(rfile) = rfile {
+            rfiles.remove(rfile);
         }
     }
 
@@ -76,6 +79,10 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     list_thread.join().unwrap();
 
     // TODO: Remove remote files that don't exist locally
+    for rfile in rfiles {
+        println!("Deleting removed file {}", rfile.rel_path);
+        b2api::delete_file(&b2, &(root.path_hash.clone()+"/"+&rfile.rel_path_hash))?;
+    }
 
     Ok(())
 }

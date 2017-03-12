@@ -114,6 +114,54 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     Ok(files)
 }
 
+pub fn list_remote_file_versions(b2: &B2, prefix: &str) -> Result<Vec<String>, Box<Error>> {
+    let client = make_client();
+    let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
+
+    let body_base = format!("\"bucketId\":\"{}\",\
+                            \"maxFileCount\":10000,\
+                            \"prefix\":\"{}\"", b2.bucket_id, prefix);
+    let mut body: String;
+    let mut start_file_id: Option<String> = None;
+    let mut files: Vec<String> = Vec::new();
+
+    loop {
+        if start_file_id.is_some() {
+            body = format!("{{\"startFileId\":\"{}\",\
+                            {}}}", start_file_id.as_ref().unwrap(), body_base)
+        } else {
+            body = format!("{{{}}}", body_base)
+        }
+        let mut reply: Response = client.post(&url)
+            .header(Authorization(b2.auth_token.clone()))
+            .body(&body)
+            .send()?;
+
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Json = Json::from_str(reply_data)?;
+
+        if !reply.status.is_success() {
+            return Err(From::from(format!("list_remote_files_versions failed with error {}: {}",
+                                          reply.status.to_u16(),
+                                          reply_json.find("message").unwrap())));
+        }
+
+        for file in reply_json.find("files").unwrap().as_array().unwrap() {
+            files.push(file.find("fileId").unwrap().as_string().unwrap().to_string());
+        }
+
+        let maybe_next = reply_json.find("nextFileId").unwrap().as_string();
+        if maybe_next.is_some() {
+            start_file_id = Some(maybe_next.unwrap().to_string());
+        } else {
+            break;
+        }
+    }
+
+    Ok(files)
+}
+
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -198,6 +246,30 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     let mut reply_data = Vec::new();
     reply.read_to_end(&mut reply_data)?;
     Ok(reply_data)
+}
+
+pub fn delete_file(b2: &B2, file_name: &str) -> Result<(), Box<Error>> {
+    let files = list_remote_file_versions(b2, file_name)?;
+    for file_id in files {
+        let client = make_client();
+        let basic_auth = Authorization(b2.auth_token.clone());
+        let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
+        let mut reply: Response = client.post(&url)
+            .header(basic_auth)
+            .body(&format!("{{\"fileId\": \"{}\", \
+                              \"fileName\": \"{}\"}}", file_id, file_name))
+            .send()?;
+        if !reply.status.is_success() {
+            let reply_data = &mut String::new();
+            reply.read_to_string(reply_data)?;
+            let reply_json: Json = Json::from_str(reply_data)?;
+
+            return Err(From::from(format!("Removal of {} failed with error {}: {}",
+                                          file_name, reply.status.to_u16(),
+                                          reply_json.find("message").unwrap())));
+        }
+    }
+    Ok(())
 }
 
 pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
