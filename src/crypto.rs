@@ -7,6 +7,7 @@ use rustc_serialize::hex::{ToHex, FromHex};
 use bincode;
 use bincode::rustc_serialize::{encode, decode};
 use sha1::Sha1;
+use libsodium_sys;
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
@@ -24,10 +25,21 @@ pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
     key
 }
 
-pub fn encrypt(plaintext: &[u8], key: &Key) -> Vec<u8> {
+pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
     let nonce = secretbox::gen_nonce();
-    let mut cipher = secretbox::seal(plaintext, &nonce, key);
     let secretbox::Nonce(nonceb) = nonce;
+
+    let clen = plain.len() + secretbox::MACBYTES;
+    let mut cipher = Vec::with_capacity(clen + secretbox::NONCEBYTES);
+    unsafe {
+        cipher.set_len(clen);
+        libsodium_sys::crypto_secretbox_easy(cipher.as_mut_ptr(),
+                                   plain.as_ptr(),
+                                   plain.len() as u64,
+                                   &nonceb,
+                                   key);
+    }
+
     cipher.extend_from_slice(&nonceb);
     cipher
 }

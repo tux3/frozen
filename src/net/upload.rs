@@ -53,8 +53,9 @@ impl UploadThread {
             let mut contents = contents.unwrap();
 
             tx_progress.send(Progress::Compressing(0)).unwrap();
-            let compressed = zstd::encode_all(contents.as_slice(), config.compression_level);
+            let compressed = zstd::block::compress(contents.as_slice(), config.compression_level);
             contents.clear();
+            contents.shrink_to_fit();
             if compressed.is_err() {
                 tx_progress.send(Progress::Error(
                             format!("Failed to compress file: {}", filename))).unwrap();
@@ -65,6 +66,7 @@ impl UploadThread {
             tx_progress.send(Progress::Encrypting(0)).unwrap();
             let encrypted = crypto::encrypt(&compressed, &b2.key);
             compressed.clear();
+            compressed.shrink_to_fit();
 
             tx_progress.send(Progress::Uploading(0, encrypted.len() as u64)).unwrap();
 

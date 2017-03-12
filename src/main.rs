@@ -4,6 +4,7 @@ extern crate hyper_openssl;
 extern crate rustc_serialize;
 extern crate bincode;
 extern crate rpassword;
+extern crate libsodium_sys;
 extern crate sodiumoxide;
 extern crate sha1;
 extern crate zstd;

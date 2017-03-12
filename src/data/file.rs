@@ -3,7 +3,7 @@ use std::fs::{self, File};
 use std::error::Error;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use crypto;
 use util;
 
@@ -37,8 +37,18 @@ impl LocalFile {
 
     pub fn read_all(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
         let mut file : File = File::open(root_path.to_owned()+"/"+&self.path_str())?;
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)?;
+        let mut size = file.seek(SeekFrom::End(0))? as usize;
+        file.seek(SeekFrom::Start(0))?;
+        let mut contents = Vec::with_capacity(size);
+        unsafe { contents.set_len(size); }
+        let mut pos = 0;
+        while let Ok(n) = file.read(&mut contents[pos..pos+size]) {
+            if n == 0 {
+                break;
+            }
+            pos += n;
+            size -= n;
+        }
         Ok(contents)
     }
 }
