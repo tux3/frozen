@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 use config::Config;
 use data::root;
-use net::{b2api, upload};
+use net::b2api;
 use progress;
 
 pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
@@ -37,16 +37,16 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     for file in lfiles_rx {
         let rfile = rfiles.binary_search_by(|v| v.cmp_local(&file));
         if rfile.is_err() || rfiles[rfile.unwrap()].last_modified != file.last_modified {
-            'send: loop {
+            'upload_send: loop {
                 for thread in &upload_threads {
                     if thread.tx.try_send(Some(file.clone())).is_ok() {
-                        break 'send;
+                        break 'upload_send;
                     }
                 }
-                handle_progress(&mut upload_threads);
+                progress::handle_progress(&mut upload_threads);
                 thread::sleep(Duration::from_millis(20));
             }
-            handle_progress(&mut upload_threads);
+            progress::handle_progress(&mut upload_threads);
         }
         if let Ok(rfile) = rfile {
             rfiles.remove(rfile);
@@ -59,7 +59,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
         if thread_id < upload_threads.len() {
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                handle_progress(&mut upload_threads);
+                progress::handle_progress(&mut upload_threads);
                 thread::sleep(Duration::from_millis(20));
                 continue;
             }
@@ -73,46 +73,51 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     }
 
     while !upload_threads.is_empty() {
-        handle_progress(&mut upload_threads);
+        progress::handle_progress(&mut upload_threads);
         thread::sleep(Duration::from_millis(20));
     }
     list_thread.join().unwrap();
 
-    // TODO: Remove remote files that don't exist locally
+    // Delete remote files that were removed locally
+    let mut delete_threads = root.start_delete_threads(b2, config);
+    progress::start_output(delete_threads.len());
+
     for rfile in rfiles {
-        println!("Deleting removed file {}", rfile.rel_path);
-        b2api::delete_file(&b2, &(root.path_hash.clone()+"/"+&rfile.rel_path_hash))?;
+        'delete_send: loop {
+            for thread in &delete_threads {
+                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
+                    break 'delete_send;
+                }
+            }
+            progress::handle_progress(&mut delete_threads);
+            thread::sleep(Duration::from_millis(20));
+        }
+        progress::handle_progress(&mut delete_threads);
+    }
+
+    // Tell our delete threads to stop as they become idle
+    let mut thread_id = delete_threads.len() - 1;
+    loop {
+        if thread_id < delete_threads.len() {
+            let result = &delete_threads[thread_id].tx.try_send(None);
+            if result.is_err() {
+                progress::handle_progress(&mut delete_threads);
+                thread::sleep(Duration::from_millis(20));
+                continue;
+            }
+        }
+
+        if thread_id == 0 {
+            break;
+        } else {
+            thread_id -= 1;
+        }
+    }
+
+    while !delete_threads.is_empty() {
+        progress::handle_progress(&mut delete_threads);
+        thread::sleep(Duration::from_millis(20));
     }
 
     Ok(())
-}
-
-/// Receives and displays progress information. Removes dead threads from the list.
-fn handle_progress(threads: &mut Vec<upload::UploadThread>) {
-    let mut num_threads = threads.len();
-    let mut thread_id = 0;
-    while thread_id < num_threads {
-        let mut delete_later = false;
-        {
-            let thread = &threads[thread_id];
-            loop {
-                let progress = thread.rx.try_recv();
-                if progress.is_err() {
-                    break;
-                }
-                let progress = progress.unwrap();
-                if let progress::Progress::Terminated = progress {
-                    delete_later = true;
-                }
-                progress::progress_output(&progress, thread_id, num_threads);
-            }
-        }
-        if delete_later {
-            threads.remove(thread_id);
-            num_threads -= 1;
-        }
-
-        thread_id += 1;
-    }
-    progress::flush();
 }

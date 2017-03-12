@@ -3,11 +3,14 @@ use std::io::{stdout, Write, Read, Error};
 use std::cmp;
 use std::sync::mpsc::Sender;
 use pretty_bytes::converter::convert;
+use net::progress_thread;
 
 pub enum Progress {
     Started(String),
     Error(String),
     Transferred(String),
+    Deleted(String),
+    Deleting,
     Terminated,
     Downloading(u8),
     Uploading(u8, u64),
@@ -79,6 +82,7 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
         Decompressing(_) => write_at(off, VT100::StyleActive, "Decompressing      "),
         Encrypting(_) => write_at(off, VT100::StyleActive,    "Encrypting         "),
         Decrypting(_) => write_at(off, VT100::StyleActive,    "Decrypting         "),
+        Deleting => write_at(off, VT100::StyleActive,      "Deleting           "),
         Error(ref str) => {
             rewrite_at(off, VT100::StyleActive,               "Done               ");
             insert_at(num_threads, VT100::StyleError, &format!("Error: {}", str));
@@ -86,6 +90,10 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
         Transferred(ref str) => {
             rewrite_at(off, VT100::StyleActive,               "Done               ");
             insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
+        },
+        Deleted(ref str) => {
+            rewrite_at(off, VT100::StyleActive,               "Done               ");
+            insert_at(num_threads, VT100::StyleReset, &format!("Deleted     \t\t\t{}", str));
         },
         Terminated => {
             remove_at(off);
@@ -95,4 +103,34 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
 
 pub fn flush() {
     stdout().flush().unwrap();
+}
+
+/// Receives and displays progress information. Removes dead threads from the list.
+pub fn handle_progress<T: progress_thread::ProgressThread>(threads: &mut Vec<T>) {
+    let mut num_threads = threads.len();
+    let mut thread_id = 0;
+    while thread_id < num_threads {
+        let mut delete_later = false;
+        {
+            let thread = &threads[thread_id];
+            loop {
+                let progress = thread.progress_rx().try_recv();
+                if progress.is_err() {
+                    break;
+                }
+                let progress = progress.unwrap();
+                if let Progress::Terminated = progress {
+                    delete_later = true;
+                }
+                progress_output(&progress, thread_id, num_threads);
+            }
+        }
+        if delete_later {
+            threads.remove(thread_id);
+            num_threads -= 1;
+        }
+
+        thread_id += 1;
+    }
+    flush();
 }

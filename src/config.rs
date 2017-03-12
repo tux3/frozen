@@ -9,6 +9,7 @@ use crypto;
 static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
 pub static UPLOAD_THREADS_DEFAULT: u16 = 6;
 pub static DOWNLOAD_THREADS_DEFAULT: u16 = 8;
+pub static DELETE_THREADS_DEFAULT: u16 = 16;
 pub static COMPRESSION_LEVEL_DEFAULT: i32 = 18;
 
 #[derive(Clone)]
@@ -18,6 +19,7 @@ pub struct Config {
     pub key: crypto::Key,
     pub upload_threads: u16,
     pub download_threads: u16,
+    pub delete_threads: u16,
     pub compression_level: i32,
 }
 
@@ -27,6 +29,7 @@ struct ConfigFile {
     pub encrypted_app_key: Vec<u8>,
     pub upload_threads: u16,
     pub download_threads: u16,
+    pub delete_threads: u16,
     pub compression_level: i32,
 }
 
@@ -62,6 +65,7 @@ pub fn read_config() -> Result<Config, Box<Error>> {
         key: key,
         upload_threads: config_file.upload_threads,
         download_threads: config_file.download_threads,
+        delete_threads: config_file.delete_threads,
         compression_level: config_file.compression_level,
     })
 }
@@ -76,6 +80,7 @@ pub fn create_config_interactive() -> Config {
         app_key: app_key,
         upload_threads: UPLOAD_THREADS_DEFAULT,
         download_threads: DOWNLOAD_THREADS_DEFAULT,
+        delete_threads: DELETE_THREADS_DEFAULT,
         compression_level: COMPRESSION_LEVEL_DEFAULT,
     }
 }
@@ -87,6 +92,7 @@ pub fn save_config(config : &Config) -> Result<(), Box<Error>> {
         encrypted_app_key: crypto::encrypt(&Vec::from(config.app_key.as_str()), &config.key),
         upload_threads: config.upload_threads,
         download_threads: config.download_threads,
+        delete_threads: config.delete_threads,
         compression_level: config.compression_level,
     };
     let encoded = json::encode(&config_file)?;

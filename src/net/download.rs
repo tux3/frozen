@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
 use data::file::{RemoteFile};
 use data::root::BackupRoot;
-use net::b2api;
+use net::{b2api, progress_thread};
 use crypto;
 use progress::Progress;
 use zstd;
@@ -14,6 +14,12 @@ pub struct DownloadThread {
     pub tx: SyncSender<Option<RemoteFile>>,
     pub rx: Receiver<Progress>,
     pub handle: thread::JoinHandle<()>,
+}
+
+impl progress_thread::ProgressThread for DownloadThread {
+    fn progress_rx(&self) -> &Receiver<Progress> {
+        &self.rx
+    }
 }
 
 impl DownloadThread {
@@ -76,7 +82,6 @@ impl DownloadThread {
                 continue;
             }
 
-            // TODO: Extract filename and save file
             let save_path = target.to_owned()+"/"+&file.rel_path;
             fs::create_dir_all(Path::new(&save_path).parent().unwrap()).unwrap();
             let mut fd = File::create(save_path).unwrap();

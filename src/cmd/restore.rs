@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::fs;
 use config::Config;
 use data::root;
-use net::{b2api, download};
+use net::b2api;
 use progress;
 
 pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), Box<Error>> {
@@ -56,10 +56,10 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
                     break 'send;
                 }
             }
-            handle_progress(&mut download_threads);
+            progress::handle_progress(&mut download_threads);
             thread::sleep(Duration::from_millis(20));
         }
-        handle_progress(&mut download_threads);
+        progress::handle_progress(&mut download_threads);
     }
 
     // Tell our threads to stop as they become idle
@@ -68,7 +68,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                handle_progress(&mut download_threads);
+                progress::handle_progress(&mut download_threads);
                 thread::sleep(Duration::from_millis(20));
                 continue;
             }
@@ -82,40 +82,10 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     }
 
     while !download_threads.is_empty() {
-        handle_progress(&mut download_threads);
+        progress::handle_progress(&mut download_threads);
         thread::sleep(Duration::from_millis(20));
     }
     list_thread.join().unwrap();
 
     Ok(())
-}
-
-/// Receives and displays progress information. Removes dead threads from the list.
-fn handle_progress(threads: &mut Vec<download::DownloadThread>) {
-    let mut num_threads = threads.len();
-    let mut thread_id = 0;
-    while thread_id < num_threads {
-        let mut delete_later = false;
-        {
-            let thread = &threads[thread_id];
-            loop {
-                let progress = thread.rx.try_recv();
-                if progress.is_err() {
-                    break;
-                }
-                let progress = progress.unwrap();
-                if let progress::Progress::Terminated = progress {
-                    delete_later = true;
-                }
-                progress::progress_output(&progress, thread_id, num_threads);
-            }
-        }
-        if delete_later {
-            threads.remove(thread_id);
-            num_threads -= 1;
-        }
-
-        thread_id += 1;
-    }
-    progress::flush();
 }

@@ -12,6 +12,7 @@ use data::file::{LocalFile, RemoteFile};
 use net::b2api;
 use net::upload::UploadThread;
 use net::download::DownloadThread;
+use net::delete::DeleteThread;
 use config::Config;
 use progress::ProgressDataReader;
 
@@ -61,6 +62,10 @@ impl BackupRoot {
 
     pub fn start_download_threads(&self, b2: &b2api::B2, config: &Config, target: &str) -> Vec<DownloadThread> {
         (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
+    }
+
+    pub fn start_delete_threads(&self, b2: &b2api::B2, config: &Config) -> Vec<DeleteThread> {
+        (0..config.delete_threads).map(|_| DeleteThread::new(self, b2)).collect()
     }
 }
 

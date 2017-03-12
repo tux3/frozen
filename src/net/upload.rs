@@ -2,7 +2,7 @@ use std::thread;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
 use data::file::{LocalFile};
 use data::root::BackupRoot;
-use net::b2api;
+use net::{b2api, progress_thread};
 use config::Config;
 use crypto;
 use progress::{Progress, ProgressDataReader};
@@ -12,6 +12,12 @@ pub struct UploadThread {
     pub tx: SyncSender<Option<LocalFile>>,
     pub rx: Receiver<Progress>,
     pub handle: thread::JoinHandle<()>,
+}
+
+impl progress_thread::ProgressThread for UploadThread {
+    fn progress_rx(&self) -> &Receiver<Progress> {
+        &self.rx
+    }
 }
 
 impl UploadThread {
