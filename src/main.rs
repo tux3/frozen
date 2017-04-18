@@ -49,6 +49,7 @@ fn main() {
     match args[1].as_ref() {
         "backup" => cmd::backup(&config, &args[2]),
         "restore" => cmd::restore(&config, &args[2], target_path),
+        "delete" => cmd::delete(&config, &args[2]),
         "list" => cmd::list(&config),
         _ => help_and_die(&args[0]),
     }.unwrap_or_else(|err| {

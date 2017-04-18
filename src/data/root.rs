@@ -117,6 +117,17 @@ pub fn open_create_root(b2: &mut b2api::B2, roots: &mut Vec<BackupRoot>, path: &
     Ok(root)
 }
 
+pub fn delete_root(b2: &mut b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
+    -> Result<(), Box<Error>> {
+    if roots.iter().position(|r| r.path == path).map(|i| roots.remove(i)).is_none() {
+        return Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path)))
+    }
+
+    save_roots(b2, roots)?;
+
+    Ok(())
+}
+
 /// Opens an existing backup root
 pub fn open_root(roots: &mut Vec<BackupRoot>, path: &str)
                         -> Result<BackupRoot, Box<Error>> {
