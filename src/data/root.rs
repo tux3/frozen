@@ -76,7 +76,8 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
         if path.is_dir() {
             list_local_files(base, &path, key, tx);
         } else {
-            tx.send(LocalFile::new(base, &path, key).unwrap()).unwrap();
+            let file = LocalFile::new(base, &path, key);
+            tx.send(file.unwrap()).unwrap();
         }
     }
 }

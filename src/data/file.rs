@@ -28,7 +28,7 @@ impl LocalFile {
         Ok(LocalFile {
             rel_path_hash: crypto::hash_path(&rel_path.to_string_lossy().to_string(), key),
             rel_path: rel_path,
-            last_modified: util::to_timestamp(fs::metadata(path)?.modified()?),
+            last_modified: util::to_timestamp(fs::symlink_metadata(path)?.modified()?),
         })
     }
 

@@ -88,6 +88,7 @@ impl DownloadThread {
             fs::create_dir_all(Path::new(&save_path).parent().unwrap()).unwrap();
             if file.is_symlink {
                 let link_target = String::from_utf8(contents).unwrap();
+                fs::remove_file(&save_path).ok();
                 symlink(link_target, save_path).unwrap();
             } else {
                 let mut fd = File::create(save_path).unwrap();

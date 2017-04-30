@@ -36,7 +36,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
 
     for file in lfiles_rx {
         let rfile = rfiles.binary_search_by(|v| v.cmp_local(&file));
-        if rfile.is_err() || rfiles[rfile.unwrap()].last_modified != file.last_modified {
+        if rfile.is_err() || rfiles[rfile.unwrap()].last_modified < file.last_modified {
             'upload_send: loop {
                 for thread in &upload_threads {
                     if thread.tx.try_send(Some(file.clone())).is_ok() {
