@@ -70,7 +70,13 @@ impl BackupRoot {
 }
 
 fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>) {
-    for entry in fs::read_dir(dir).unwrap() {
+    let entries = fs::read_dir(dir);
+    if entries.is_err() {
+        println!("Couldn't open folder \"{}\": {}", (base.to_string_lossy()+dir.to_string_lossy()),
+                                                        entries.err().unwrap());
+        return
+    }
+    for entry in entries.unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if path.is_dir() {
