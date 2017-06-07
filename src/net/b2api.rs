@@ -1,13 +1,15 @@
 use std::error::Error;
 use std::io::Read;
 use std::vec::Vec;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::sleep;
+use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use crypto::{self, encode_meta, decode_meta};
 use data::file::RemoteFile;
 use config::Config;
 use progress::ProgressDataReader;
 use hyper::client::{Client, Body};
 use hyper::client::response::Response;
+use hyper::status::StatusCode;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
 use hyper::net::HttpsConnector;
 use hyper_openssl::OpensslClient;
@@ -188,8 +190,31 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 }
 
 pub fn upload_file(b2: &mut B2, filename: &str,
+                        data: &mut ProgressDataReader,
+                        enc_meta: Option<String>) -> Result<(), Box<Error>> {
+    let enc_meta = if enc_meta.is_some() {
+        enc_meta.unwrap()
+    } else {
+        let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        encode_meta(&b2.key, &filename, last_modified, false)
+    };
+
+    let mut backoff = Duration::from_millis(500);
+    for _ in 0..5 {
+        let status = upload_file_once(b2, filename, data, &enc_meta)?;
+        if status.is_success() {
+            return Ok(());
+        } else {
+            sleep(backoff);
+            backoff *= 2;
+        }
+    }
+    return Err(From::from("Too many failed attempts"));
+}
+
+fn upload_file_once(b2: &mut B2, filename: &str,
                    data: &mut ProgressDataReader,
-                   enc_meta: Option<String>) -> Result<(), Box<Error>> {
+                   enc_meta: &str) -> Result<StatusCode, Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
@@ -197,12 +222,6 @@ pub fn upload_file(b2: &mut B2, filename: &str,
     let mut reply: Response;
 
     {
-        let enc_meta = if enc_meta.is_some() {
-            enc_meta.unwrap()
-        } else {
-            let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            encode_meta(&b2.key, &filename, last_modified, false)
-        };
         let client = make_client();
         let sha1 = crypto::sha1_string(data.as_slice());
         let data_size = data.len() as u64;
@@ -215,7 +234,7 @@ pub fn upload_file(b2: &mut B2, filename: &str,
             .header(ContentType("application/octet-stream".parse().unwrap()))
             .header(ContentLength(data_size))
             .header(XBzContentSha1(sha1))
-            .header(XBzEncMeta(enc_meta))
+            .header(XBzEncMeta(enc_meta.to_owned()))
             .body(body)
             .send()?;
     }
@@ -224,13 +243,18 @@ pub fn upload_file(b2: &mut B2, filename: &str,
     reply.read_to_string(reply_data)?;
     let reply_json: Json = Json::from_str(reply_data)?;
 
+    // Temporary failure is not an error, just asking for an exponential backoff
+    if reply.status.to_u16() == 503 {
+        return Ok(reply.status);
+    }
+
     if !reply.status.is_success() {
         b2.upload = None;
         return Err(From::from(format!("upload_file failed with error {}: {}",
                                       reply.status.to_u16(),
                                       reply_json.find("message").unwrap())));
     }
-    Ok(())
+    Ok(reply.status)
 }
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
