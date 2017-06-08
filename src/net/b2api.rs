@@ -9,7 +9,6 @@ use config::Config;
 use progress::ProgressDataReader;
 use hyper::client::{Client, Body};
 use hyper::client::response::Response;
-use hyper::status::StatusCode;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
 use hyper::net::HttpsConnector;
 use hyper_openssl::OpensslClient;
@@ -201,8 +200,8 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 
     let mut backoff = Duration::from_millis(500);
     for _ in 0..5 {
-        let status = upload_file_once(b2, filename, data, &enc_meta)?;
-        if status.is_success() {
+        let success = upload_file_once(b2, filename, data, &enc_meta)?;
+        if success {
             return Ok(());
         } else {
             sleep(backoff);
@@ -214,21 +213,19 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 
 fn upload_file_once(b2: &mut B2, filename: &str,
                    data: &mut ProgressDataReader,
-                   enc_meta: &str) -> Result<StatusCode, Box<Error>> {
+                   enc_meta: &str) -> Result<bool, Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
 
-    let mut reply: Response;
-
-    {
+    let reply = {
         let client = make_client();
         let sha1 = crypto::sha1_string(data.as_slice());
         let data_size = data.len() as u64;
         let body = Body::SizedBody(data, data_size);
         let b2upload = &b2.upload.as_mut().unwrap();
         let basic_auth = Authorization(b2upload.auth_token.clone());
-        reply = client.post(&b2upload.url)
+        client.post(&b2upload.url)
             .header(basic_auth)
             .header(XBzFileName(filename.to_string()))
             .header(ContentType("application/octet-stream".parse().unwrap()))
@@ -236,16 +233,21 @@ fn upload_file_once(b2: &mut B2, filename: &str,
             .header(XBzContentSha1(sha1))
             .header(XBzEncMeta(enc_meta.to_owned()))
             .body(body)
-            .send()?;
+            .send()
+    };
+
+    if reply.is_err() {
+        return Ok(false)
     }
+    let mut reply = reply.unwrap();
 
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
     let reply_json: Json = Json::from_str(reply_data)?;
 
     // Temporary failure is not an error, just asking for an exponential backoff
-    if reply.status.to_u16() == 503 {
-        return Ok(reply.status);
+    if reply.status.to_u16() == 503 || reply.status.to_u16() == 408 {
+        return Ok(false);
     }
 
     if !reply.status.is_success() {
@@ -254,7 +256,8 @@ fn upload_file_once(b2: &mut B2, filename: &str,
                                       reply.status.to_u16(),
                                       reply_json.find("message").unwrap())));
     }
-    Ok(reply.status)
+
+    Ok(true)
 }
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
