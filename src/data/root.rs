@@ -79,7 +79,8 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
     for entry in entries.unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.is_dir() {
+        let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
+        if path.is_dir() && !is_symlink {
             list_local_files(base, &path, key, tx);
         } else {
             let file = LocalFile::new(base, &path, key);
