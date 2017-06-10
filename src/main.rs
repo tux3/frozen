@@ -15,6 +15,7 @@ extern crate sha_1;
 extern crate digest;
 extern crate zstd;
 extern crate pretty_bytes;
+extern crate ctrlc;
 
 use std::env;
 use std::process::exit;

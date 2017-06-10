@@ -6,6 +6,7 @@ use config::Config;
 use data::root;
 use net::b2api;
 use progress;
+use util;
 
 pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), Box<Error>> {
     let mut path = path.to_string();
@@ -27,14 +28,18 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(b2);
 
+    let signal_flag = util::setup_signal_flag();
+
     println!("Opening backup folder {}", path);
     let root = root::open_root(b2, &mut roots, &path)?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async_at(b2, target)?;
+    util::err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");
     let mut rfiles = root.list_remote_files(b2)?;
+    util::err_on_signal(&signal_flag)?;
 
     println!("Starting download");
     let mut download_threads = root.start_download_threads(b2, config, target);
@@ -47,6 +52,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
             println!("File up to date: {}", file.path_str());
             rfiles.remove(rfile.unwrap());
         }
+        util::err_on_signal(&signal_flag)?;
     }
 
     for rfile in rfiles {
@@ -56,15 +62,18 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
                     break 'send;
                 }
             }
+            util::err_on_signal(&signal_flag)?;
             progress::handle_progress(&mut download_threads);
             thread::sleep(Duration::from_millis(20));
         }
+        util::err_on_signal(&signal_flag)?;
         progress::handle_progress(&mut download_threads);
     }
 
     // Tell our threads to stop as they become idle
     let mut thread_id = download_threads.len() - 1;
     loop {
+        util::err_on_signal(&signal_flag)?;
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -82,6 +91,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     }
 
     while !download_threads.is_empty() {
+        util::err_on_signal(&signal_flag)?;
         progress::handle_progress(&mut download_threads);
         thread::sleep(Duration::from_millis(20));
     }

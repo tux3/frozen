@@ -1,4 +1,5 @@
 use std::thread;
+use std::error::Error;
 use std::fs::{self, File};
 use std::os::unix::fs::symlink;
 use std::io::Write;
@@ -31,7 +32,7 @@ impl DownloadThread {
         let (tx_file, rx_file) = sync_channel(1);
         let (tx_progress, rx_progress) = channel();
         let handle = thread::spawn(move || {
-            DownloadThread::download(root, b2, target, rx_file, tx_progress)
+            let _ = DownloadThread::download(root, b2, target, rx_file, tx_progress);
         });
 
         DownloadThread {
@@ -42,44 +43,45 @@ impl DownloadThread {
     }
 
     fn download(root: BackupRoot, b2: b2api::B2, target: String,
-                rx_file: Receiver<Option<RemoteFile>>, tx_progress: Sender<Progress>) {
+                rx_file: Receiver<Option<RemoteFile>>, tx_progress: Sender<Progress>)
+            -> Result<(), Box<Error>> {
         for file in rx_file {
             if file.is_none() {
                 break;
             }
             let file = file.unwrap();
 
-            tx_progress.send(Progress::Started(file.rel_path.clone())).unwrap();
+            tx_progress.send(Progress::Started(file.rel_path.clone()))?;
 
-            tx_progress.send(Progress::Downloading(0)).unwrap();
+            tx_progress.send(Progress::Downloading(0))?;
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let encrypted = b2api::download_file(&b2, &filehash);
             if encrypted.is_err() {
                 tx_progress.send(Progress::Error(
                     format!("Failed to download file \"{}\": {}", file.rel_path,
-                            encrypted.err().unwrap()))).unwrap();
+                            encrypted.err().unwrap())))?;
                 continue;
             }
             let mut encrypted = encrypted.unwrap();
 
-            tx_progress.send(Progress::Decrypting(0)).unwrap();
+            tx_progress.send(Progress::Decrypting(0))?;
             let compressed = crypto::decrypt(&encrypted, &b2.key);
             encrypted.clear();
             if compressed.is_err() {
                 tx_progress.send(Progress::Error(
                     format!("Failed to decrypt file \"{}\": {}", file.rel_path,
-                            compressed.err().unwrap()))).unwrap();
+                            compressed.err().unwrap())))?;
                 continue;
             }
             let mut compressed = compressed.unwrap();
 
-            tx_progress.send(Progress::Decompressing(0)).unwrap();
+            tx_progress.send(Progress::Decompressing(0))?;
             let contents = zstd::decode_all(compressed.as_slice());
             compressed.clear();
             if contents.is_err() {
                 tx_progress.send(Progress::Error(
                     format!("Failed to decompress file \"{}\": {}", file.rel_path,
-                            contents.err().unwrap()))).unwrap();
+                            contents.err().unwrap())))?;
                 continue;
             }
             let contents = contents.unwrap();
@@ -95,9 +97,10 @@ impl DownloadThread {
                 fd.write_all(contents.as_ref()).unwrap();
             }
 
-            tx_progress.send(Progress::Transferred(file.rel_path.clone())).unwrap();
+            tx_progress.send(Progress::Transferred(file.rel_path.clone()))?;
         }
 
-        tx_progress.send(Progress::Terminated).unwrap();
+        tx_progress.send(Progress::Terminated)?;
+        Ok(())
     }
 }

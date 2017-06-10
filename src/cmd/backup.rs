@@ -7,6 +7,7 @@ use config::Config;
 use data::root;
 use net::b2api;
 use progress;
+use util;
 
 pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
@@ -20,14 +21,18 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(b2);
 
+    let signal_flag = util::setup_signal_flag();
+
     println!("Opening backup folder {}", path);
     let root = root::open_create_root(b2, &mut roots, &path)?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async(b2)?;
+    util::err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");
     let mut rfiles = root.list_remote_files(b2)?;
+    util::err_on_signal(&signal_flag)?;
 
     println!("Starting upload");
     let mut upload_threads = root.start_upload_threads(b2, config);
@@ -44,8 +49,10 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
                     }
                 }
                 progress::handle_progress(&mut upload_threads);
+                util::err_on_signal(&signal_flag)?;
                 thread::sleep(Duration::from_millis(20));
             }
+            util::err_on_signal(&signal_flag)?;
             progress::handle_progress(&mut upload_threads);
         }
         if let Ok(rfile) = rfile {
@@ -56,6 +63,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     // Tell our threads to stop as they become idle
     let mut thread_id = upload_threads.len() - 1;
     loop {
+        util::err_on_signal(&signal_flag)?;
         if thread_id < upload_threads.len() {
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -73,6 +81,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     }
 
     while !upload_threads.is_empty() {
+        util::err_on_signal(&signal_flag)?;
         progress::handle_progress(&mut upload_threads);
         thread::sleep(Duration::from_millis(20));
     }
@@ -89,15 +98,18 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
                     break 'delete_send;
                 }
             }
+            util::err_on_signal(&signal_flag)?;
             progress::handle_progress(&mut delete_threads);
             thread::sleep(Duration::from_millis(20));
         }
+        util::err_on_signal(&signal_flag)?;
         progress::handle_progress(&mut delete_threads);
     }
 
     // Tell our delete threads to stop as they become idle
     let mut thread_id = delete_threads.len() - 1;
     loop {
+        util::err_on_signal(&signal_flag)?;
         if thread_id < delete_threads.len() {
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -115,6 +127,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     }
 
     while !delete_threads.is_empty() {
+        util::err_on_signal(&signal_flag)?;
         progress::handle_progress(&mut delete_threads);
         thread::sleep(Duration::from_millis(20));
     }

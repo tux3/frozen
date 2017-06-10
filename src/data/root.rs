@@ -16,7 +16,6 @@ use net::delete::DeleteThread;
 use config::Config;
 use progress::ProgressDataReader;
 
-
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackupRoot {
     pub path: String,
@@ -49,7 +48,7 @@ impl BackupRoot {
             Err(From::from(format!("{} is not a folder!", &self.path)))
         } else {
             let handle = thread::spawn(move || {
-                list_local_files(path.as_path(), path.as_path(), &key.clone(), &tx.clone());
+                let _ = list_local_files(path.as_path(), path.as_path(), &key.clone(), &tx.clone());
             });
             Ok((rx, handle))
         }
@@ -101,7 +100,6 @@ impl BackupRoot {
                                             locks.len() - 1)));
         }
 
-        println!("Locked root folder");
         Ok(())
     }
 
@@ -111,7 +109,6 @@ impl BackupRoot {
         }
         let (lock_version, lock_b2) = self.lock.take().unwrap();
         b2api::delete_file_version(&lock_b2, &lock_version)?;
-        println!("Unlocked root folder");
         Ok(())
     }
 }
@@ -122,24 +119,28 @@ impl Drop for BackupRoot {
     }
 }
 
-fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>) {
+fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>)
+    -> Result<(), Box<Error>> {
     let entries = fs::read_dir(dir);
     if entries.is_err() {
         println!("Couldn't open folder \"{}\": {}", (base.to_string_lossy()+dir.to_string_lossy()),
                                                         entries.err().unwrap());
-        return
+        return Ok(())
     }
     for entry in entries.unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
         if path.is_dir() && !is_symlink {
-            list_local_files(base, &path, key, tx);
+            list_local_files(base, &path, key, tx)?;
         } else {
             let file = LocalFile::new(base, &path, key);
-            tx.send(file.unwrap()).unwrap();
+            if tx.send(file.unwrap()).is_err() {
+                return Err(From::from("Main thread seems to be gone, exiting"));
+            }
         }
     }
+    Ok(())
 }
 
 pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {

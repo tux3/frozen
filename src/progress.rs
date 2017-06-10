@@ -1,5 +1,5 @@
 use vt100::*;
-use std::io::{stdout, Write, Read, Error};
+use std::io::{stdout, Write, Read, Error, ErrorKind};
 use std::cmp;
 use std::sync::mpsc::Sender;
 use pretty_bytes::converter::convert;
@@ -54,8 +54,10 @@ impl Read for ProgressDataReader {
         self.pos += read_size;
         if self.tx_progress.is_some() {
             let progress = (self.pos*100/self.len()) as u8;
-            self.tx_progress.as_ref().unwrap()
-                            .send(Progress::Uploading(progress, self.len() as u64)).unwrap();
+            if self.tx_progress.as_ref().unwrap()
+                            .send(Progress::Uploading(progress, self.len() as u64)).is_err() {
+                return Err(Error::new(ErrorKind::Other, "Receiving thread seems gone"));
+            }
         }
         Ok(read_size)
     }
