@@ -36,7 +36,7 @@ fn delete_files(config: &Config, b2: &mut b2api::B2, root: &root::BackupRoot)
     println!("Listing remote files");
     let rfiles = root.list_remote_files(b2)?;
 
-    // Delete remote files that were removed locally
+    // Delete all remote files
     let mut delete_threads = root.start_delete_threads(b2, config);
     progress::start_output(delete_threads.len());
 

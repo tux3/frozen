@@ -22,6 +22,11 @@ pub struct RemoteFile {
     pub is_symlink: bool,
 }
 
+pub struct RemoteFileVersion {
+    pub path: String,
+    pub id: String,
+}
+
 impl LocalFile {
     pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> Result<LocalFile, Box<Error>> {
         let rel_path = PathBuf::from(path.strip_prefix(base)?);

@@ -45,7 +45,7 @@ impl DeleteThread {
             tx_progress.send(Progress::Started(file.rel_path.clone())).unwrap();
             tx_progress.send(Progress::Deleting).unwrap();
 
-            let err = b2api::delete_file(&b2, &(root.path_hash.clone()+"/"+&file.rel_path_hash));
+            let err = b2api::delete_files(&b2, &(root.path_hash.clone()+"/"+&file.rel_path_hash));
             if err.is_err() {
                 tx_progress.send(Progress::Error(
                     format!("Failed to delete file \"{}\": {}", file.rel_path,

@@ -4,7 +4,7 @@ use std::vec::Vec;
 use std::thread::sleep;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use crypto::{self, encode_meta, decode_meta};
-use data::file::RemoteFile;
+use data::file::{RemoteFile, RemoteFileVersion};
 use config::Config;
 use progress::ProgressDataReader;
 use hyper::client::{Client, Body};
@@ -115,7 +115,8 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     Ok(files)
 }
 
-pub fn list_remote_file_versions(b2: &B2, prefix: &str) -> Result<Vec<String>, Box<Error>> {
+pub fn list_remote_file_versions(b2: &B2, prefix: &str)
+            -> Result<Vec<RemoteFileVersion>, Box<Error>> {
     let client = make_client();
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
 
@@ -123,13 +124,15 @@ pub fn list_remote_file_versions(b2: &B2, prefix: &str) -> Result<Vec<String>, B
                             \"maxFileCount\":10000,\
                             \"prefix\":\"{}\"", b2.bucket_id, prefix);
     let mut body: String;
-    let mut start_file_id: Option<String> = None;
-    let mut files: Vec<String> = Vec::new();
+    let mut start_file_version: Option<RemoteFileVersion> = None;
+    let mut files: Vec<RemoteFileVersion> = Vec::new();
 
     loop {
-        if start_file_id.is_some() {
-            body = format!("{{\"startFileId\":\"{}\",\
-                            {}}}", start_file_id.as_ref().unwrap(), body_base)
+        if start_file_version.is_some() {
+            let ver = start_file_version.as_ref().unwrap();
+            body = format!("{{\"startFileName\":\"{}\",\
+                              \"startFileId\":\"{}\",\
+                             {}}}", ver.path, ver.id, body_base)
         } else {
             body = format!("{{{}}}", body_base)
         }
@@ -149,12 +152,18 @@ pub fn list_remote_file_versions(b2: &B2, prefix: &str) -> Result<Vec<String>, B
         }
 
         for file in reply_json.find("files").unwrap().as_array().unwrap() {
-            files.push(file.find("fileId").unwrap().as_string().unwrap().to_string());
+            let file_id = file.find("fileId").unwrap().as_string().unwrap().to_string();
+            let file_name = file.find("fileName").unwrap().as_string().unwrap().to_string();
+            files.push(RemoteFileVersion{path: file_name, id: file_id});
         }
 
-        let maybe_next = reply_json.find("nextFileId").unwrap().as_string();
-        if maybe_next.is_some() {
-            start_file_id = Some(maybe_next.unwrap().to_string());
+        let maybe_next_name = reply_json.find("nextFileName").unwrap().as_string();
+        let maybe_next_id = reply_json.find("nextFileId").unwrap().as_string();
+        if maybe_next_name.is_some() && maybe_next_id.is_some() {
+            start_file_version = Some(RemoteFileVersion{
+                path: maybe_next_name.unwrap().to_string(),
+                id: maybe_next_id.unwrap().to_string()
+            });
         } else {
             break;
         }
@@ -276,26 +285,31 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     Ok(reply_data)
 }
 
-pub fn delete_file(b2: &B2, file_name: &str) -> Result<(), Box<Error>> {
-    let files = list_remote_file_versions(b2, file_name)?;
-    for file_id in files {
-        let client = make_client();
-        let basic_auth = Authorization(b2.auth_token.clone());
-        let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
-        let mut reply: Response = client.post(&url)
-            .header(basic_auth)
-            .body(&format!("{{\"fileId\": \"{}\", \
-                              \"fileName\": \"{}\"}}", file_id, file_name))
-            .send()?;
-        if !reply.status.is_success() {
-            let reply_data = &mut String::new();
-            reply.read_to_string(reply_data)?;
-            let reply_json: Json = Json::from_str(reply_data)?;
+pub fn delete_files(b2: &B2, prefix: &str) -> Result<(), Box<Error>> {
+    let files = list_remote_file_versions(b2, prefix)?;
+    for file_version in files {
+        delete_file_version(b2, &file_version)?;
+    }
+    Ok(())
+}
 
-            return Err(From::from(format!("Removal of {} failed with error {}: {}",
-                                          file_name, reply.status.to_u16(),
-                                          reply_json.find("message").unwrap())));
-        }
+pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion) -> Result<(), Box<Error>> {
+    let client = make_client();
+    let basic_auth = Authorization(b2.auth_token.clone());
+    let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
+    let mut reply: Response = client.post(&url)
+        .header(basic_auth)
+        .body(&format!("{{\"fileId\": \"{}\", \
+                          \"fileName\": \"{}\"}}", file_version.id, file_version.path))
+        .send()?;
+    if !reply.status.is_success() {
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Json = Json::from_str(reply_data)?;
+
+        return Err(From::from(format!("Removal of {} failed with error {}: {}",
+                                      file_version.path, reply.status.to_u16(),
+                                      reply_json.find("message").unwrap())));
     }
     Ok(())
 }
