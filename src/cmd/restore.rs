@@ -49,7 +49,6 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     for file in lfiles_rx {
         let rfile = rfiles.binary_search_by(|v| v.cmp_local(&file));
         if rfile.is_ok() && rfiles[rfile.unwrap()].last_modified <= file.last_modified {
-            println!("File up to date: {}", file.path_str());
             rfiles.remove(rfile.unwrap());
         }
         util::err_on_signal(&signal_flag)?;
