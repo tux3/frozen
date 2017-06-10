@@ -18,13 +18,13 @@ header!{(XBzFileName, "X-Bz-File-Name") => [String]}
 header!{(XBzContentSha1, "X-Bz-Content-Sha1") => [String]}
 header!{(XBzEncMeta, "X-Bz-Info-enc_meta") => [String]}
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct B2Upload {
     pub url: String,
     pub auth_token: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct B2 {
     pub key: crypto::Key,
     pub bucket_id: String,
@@ -115,6 +115,67 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     Ok(files)
 }
 
+pub fn list_remote_file_versions(b2: &B2, prefix: &str)
+                                 -> Result<Vec<RemoteFileVersion>, Box<Error>> {
+    let client = make_client();
+    let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
+
+    let body_base = format!("\"bucketId\":\"{}\",\
+                            \"maxFileCount\":10000,\
+                            \"prefix\":\"{}\"", b2.bucket_id, prefix);
+    let mut body: String;
+    let mut start_file_version: Option<RemoteFileVersion> = None;
+    let mut files: Vec<RemoteFileVersion> = Vec::new();
+
+    loop {
+        if start_file_version.is_some() {
+            let ver = start_file_version.as_ref().unwrap();
+            body = format!("{{\"startFileName\":\"{}\",\
+                              \"startFileId\":\"{}\",\
+                             {}}}", ver.path, ver.id, body_base)
+        } else {
+            body = format!("{{{}}}", body_base)
+        }
+        let mut reply: Response = client.post(&url)
+            .header(Authorization(b2.auth_token.clone()))
+            .body(&body)
+            .send()?;
+
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Value = serde_json::from_str(reply_data)?;
+
+        if !reply.status.is_success() {
+            return Err(From::from(format!("list_remote_files_versions failed with error {}: {}",
+                                          reply.status.to_u16(),
+                                          reply_json["message"])));
+        }
+
+        for file in reply_json["files"].as_array().unwrap() {
+            // Ignore hidden files entirely
+            if file["action"] != "upload" {
+                continue;
+            }
+            let file_id = file["fileId"].as_str().unwrap().to_string();
+            let file_name = file["fileName"].as_str().unwrap().to_string();
+            files.push(RemoteFileVersion{path: file_name, id: file_id});
+        }
+
+        let maybe_next_name = reply_json["nextFileName"].as_str();
+        let maybe_next_id = reply_json["nextFileId"].as_str();
+        if maybe_next_name.is_some() && maybe_next_id.is_some() {
+            start_file_version = Some(RemoteFileVersion{
+                path: maybe_next_name.unwrap().to_string(),
+                id: maybe_next_id.unwrap().to_string()
+            });
+        } else {
+            break;
+        }
+    }
+
+    Ok(files)
+}
+
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -142,7 +203,7 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 
 pub fn upload_file(b2: &mut B2, filename: &str,
                         data: &mut ProgressDataReader,
-                        enc_meta: Option<String>) -> Result<(), Box<Error>> {
+                        enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<Error>> {
     let enc_meta = if enc_meta.is_some() {
         enc_meta.unwrap()
     } else {
@@ -152,9 +213,8 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 
     let mut backoff = Duration::from_millis(500);
     for _ in 0..5 {
-        let success = upload_file_once(b2, filename, data, &enc_meta)?;
-        if success {
-            return Ok(());
+        if let Some(upload_version) = upload_file_once(b2, filename, data, &enc_meta)? {
+            return Ok(upload_version);
         } else {
             sleep(backoff);
             backoff *= 2;
@@ -165,7 +225,7 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 
 fn upload_file_once(b2: &mut B2, filename: &str,
                    data: &mut ProgressDataReader,
-                   enc_meta: &str) -> Result<bool, Box<Error>> {
+                   enc_meta: &str) -> Result<Option<RemoteFileVersion>, Box<Error>> {
     if b2.upload.is_none() {
         b2.upload = Some(get_upload_url(b2)?);
     }
@@ -189,7 +249,7 @@ fn upload_file_once(b2: &mut B2, filename: &str,
     };
 
     if reply.is_err() {
-        return Ok(false)
+        return Ok(None)
     }
     let mut reply = reply.unwrap();
 
@@ -199,7 +259,7 @@ fn upload_file_once(b2: &mut B2, filename: &str,
 
     // Temporary failure is not an error, just asking for an exponential backoff
     if reply.status.to_u16() == 503 || reply.status.to_u16() == 408 {
-        return Ok(false);
+        return Ok(None);
     }
 
     if !reply.status.is_success() {
@@ -209,7 +269,10 @@ fn upload_file_once(b2: &mut B2, filename: &str,
                                       reply_json["message"])));
     }
 
-    Ok(true)
+    Ok(Some(RemoteFileVersion {
+        path: reply_json["fileName"].as_str().unwrap().to_string(),
+        id: reply_json["fileId"].as_str().unwrap().to_string(),
+    }))
 }
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {

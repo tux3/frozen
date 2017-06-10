@@ -28,7 +28,7 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     let mut roots = root::fetch_roots(b2);
 
     println!("Opening backup folder {}", path);
-    let root = root::open_root(&mut roots, &path)?;
+    let root = root::open_root(b2, &mut roots, &path)?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async_at(b2, target)?;

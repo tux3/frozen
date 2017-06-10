@@ -1,8 +1,7 @@
 use std::vec::Vec;
 use std::error::Error;
-use sodiumoxide::crypto::hash;
-use sodiumoxide::crypto::pwhash;
-use sodiumoxide::crypto::secretbox;
+use sodiumoxide::crypto::{hash, pwhash, secretbox};
+use sodiumoxide::randombytes;
 use libsodium_sys;
 use bincode::{serialize, deserialize, Infinite};
 use data_encoding::{base64url, hex};
@@ -76,6 +75,10 @@ pub fn sha1_string(data: &[u8]) -> String {
     let mut hash = Sha1::default();
     hash.input(data);
     hex::encode(&hash.result())
+}
+
+pub fn randombytes(count: usize) -> Vec<u8> {
+    randombytes::randombytes(count)
 }
 
 pub fn encode_meta(key: &Key, filename: &str, time: u64, is_symlink: bool) -> String {

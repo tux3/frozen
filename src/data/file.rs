@@ -23,6 +23,7 @@ pub struct RemoteFile {
     pub is_symlink: bool,
 }
 
+#[derive(Clone, PartialEq)]
 pub struct RemoteFileVersion {
     pub path: String,
     pub id: String,
