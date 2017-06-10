@@ -1,6 +1,6 @@
 use std::thread;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
-use data::file::{RemoteFile};
+use data::file::{RemoteFile, RemoteFileVersion};
 use data::root::BackupRoot;
 use net::{b2api, progress_thread};
 use progress::Progress;
@@ -45,13 +45,19 @@ impl DeleteThread {
             tx_progress.send(Progress::Started(file.rel_path.clone())).unwrap();
             tx_progress.send(Progress::Deleting).unwrap();
 
-            let err = b2api::delete_files(&b2, &(root.path_hash.clone()+"/"+&file.rel_path_hash));
+            let version = RemoteFileVersion{
+                path: root.path_hash.clone()+"/"+&file.rel_path_hash,
+                id: file.id,
+            };
+            let err = b2api::delete_file_version(&b2, &version);
             if err.is_err() {
                 tx_progress.send(Progress::Error(
-                    format!("Failed to delete file \"{}\": {}", file.rel_path,
+                    format!("Failed to delete last version of \"{}\": {}", file.rel_path,
                             err.err().unwrap()))).unwrap();
                 continue;
             }
+
+            let _ = b2api::hide_file(&b2, &(root.path_hash.clone()+"/"+&file.rel_path_hash));
 
             tx_progress.send(Progress::Deleted(file.rel_path.clone())).unwrap();
         }

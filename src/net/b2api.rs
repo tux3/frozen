@@ -116,63 +116,6 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     Ok(files)
 }
 
-pub fn list_remote_file_versions(b2: &B2, prefix: &str)
-            -> Result<Vec<RemoteFileVersion>, Box<Error>> {
-    let client = make_client();
-    let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
-
-    let body_base = format!("\"bucketId\":\"{}\",\
-                            \"maxFileCount\":10000,\
-                            \"prefix\":\"{}\"", b2.bucket_id, prefix);
-    let mut body: String;
-    let mut start_file_version: Option<RemoteFileVersion> = None;
-    let mut files: Vec<RemoteFileVersion> = Vec::new();
-
-    loop {
-        if start_file_version.is_some() {
-            let ver = start_file_version.as_ref().unwrap();
-            body = format!("{{\"startFileName\":\"{}\",\
-                              \"startFileId\":\"{}\",\
-                             {}}}", ver.path, ver.id, body_base)
-        } else {
-            body = format!("{{{}}}", body_base)
-        }
-        let mut reply: Response = client.post(&url)
-            .header(Authorization(b2.auth_token.clone()))
-            .body(&body)
-            .send()?;
-
-        let reply_data = &mut String::new();
-        reply.read_to_string(reply_data)?;
-        let reply_json: Json = Json::from_str(reply_data)?;
-
-        if !reply.status.is_success() {
-            return Err(From::from(format!("list_remote_files_versions failed with error {}: {}",
-                                          reply.status.to_u16(),
-                                          reply_json.find("message").unwrap())));
-        }
-
-        for file in reply_json.find("files").unwrap().as_array().unwrap() {
-            let file_id = file.find("fileId").unwrap().as_string().unwrap().to_string();
-            let file_name = file.find("fileName").unwrap().as_string().unwrap().to_string();
-            files.push(RemoteFileVersion{path: file_name, id: file_id});
-        }
-
-        let maybe_next_name = reply_json.find("nextFileName").unwrap().as_string();
-        let maybe_next_id = reply_json.find("nextFileId").unwrap().as_string();
-        if maybe_next_name.is_some() && maybe_next_id.is_some() {
-            start_file_version = Some(RemoteFileVersion{
-                path: maybe_next_name.unwrap().to_string(),
-                id: maybe_next_id.unwrap().to_string()
-            });
-        } else {
-            break;
-        }
-    }
-
-    Ok(files)
-}
-
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -286,14 +229,6 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     Ok(reply_data)
 }
 
-pub fn delete_files(b2: &B2, prefix: &str) -> Result<(), Box<Error>> {
-    let files = list_remote_file_versions(b2, prefix)?;
-    for file_version in files {
-        delete_file_version(b2, &file_version)?;
-    }
-    Ok(())
-}
-
 pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion) -> Result<(), Box<Error>> {
     let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -310,6 +245,27 @@ pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion) -> Result<
 
         return Err(From::from(format!("Removal of {} failed with error {}: {}",
                                       file_version.path, reply.status.to_u16(),
+                                      reply_json.find("message").unwrap())));
+    }
+    Ok(())
+}
+
+pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {
+    let client = make_client();
+    let basic_auth = Authorization(b2.auth_token.clone());
+    let url = b2.api_url.clone()+"/b2api/v1/b2_hide_file";
+    let mut reply: Response = client.post(&url)
+        .header(basic_auth)
+        .body(&format!("{{\"bucketId\": \"{}\", \
+                          \"fileName\": \"{}\"}}", b2.bucket_id, file_path_hash))
+        .send()?;
+    if !reply.status.is_success() {
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Json = Json::from_str(reply_data)?;
+
+        return Err(From::from(format!("Hiding of {} failed with error {}: {}",
+                                      file_path_hash, reply.status.to_u16(),
                                       reply_json.find("message").unwrap())));
     }
     Ok(())
