@@ -3,21 +3,14 @@ use std::error::Error;
 use sodiumoxide::crypto::hash;
 use sodiumoxide::crypto::pwhash;
 use sodiumoxide::crypto::secretbox;
-use rustc_serialize::hex::{ToHex, FromHex};
-use rustc_serialize::base64::{self, ToBase64, FromBase64};
-use bincode;
-use bincode::rustc_serialize::{encode, decode};
-use sha1::Sha1;
 use libsodium_sys;
+use bincode::{serialize, deserialize, Infinite};
+use data_encoding::{base64url, hex};
+use blake2::{Blake2b};
+use sha_1::{Sha1};
+use digest::{Digest, VariableOutput};
 
 pub use sodiumoxide::crypto::secretbox::Key;
-
-const BASE64_CONFIG: base64::Config = base64::Config {
-    char_set: base64::CharacterSet::UrlSafe,
-    newline: base64::Newline::LF,
-    pad: true,
-    line_length: None,
-};
 
 /// Derives a secret key from the user password and the account ID (used as a salt)
 pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
@@ -70,40 +63,29 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
     }
 }
 
-pub fn hash_path(secret: &str, key: &Key) -> String {
+pub fn hash_path(secret_path: &str, key: &Key) -> String {
     let &Key(keydata) = key;
-    let mut data = Vec::from(secret.as_bytes());
-    data.extend_from_slice(&keydata);
-    let hash = hash::sha256::hash(data.as_ref());
-    hash.as_ref().to_hex()
+    let mut hasher = Blake2b::new_keyed(&keydata);
+    hasher.input(secret_path.as_bytes());
+
+    let mut hash = [0u8; 20];
+    base64url::encode_nopad(hasher.variable_result(&mut hash).unwrap())
 }
 
 pub fn sha1_string(data: &[u8]) -> String {
-    let mut hash = Sha1::new();
-    hash.update(data);
-    hash.digest().to_string()
+    let mut hash = Sha1::default();
+    hash.input(data);
+    hex::encode(&hash.result())
 }
 
 pub fn encode_meta(key: &Key, filename: &str, time: u64, is_symlink: bool) -> String {
     let data = (filename, time, is_symlink);
-    let encoded = encode(&data, bincode::SizeLimit::Infinite).unwrap();
-    encrypt(&encoded, key).to_base64(BASE64_CONFIG)
+    let encoded = serialize(&data, Infinite).unwrap();
+    base64url::encode_nopad(&encrypt(&encoded, key))
 }
 
 pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, bool), Box<Error>> {
-    let data = if let Ok(decoded) = meta_enc.from_hex() {
-        // Old hex format (have to try it first!)
-        decoded
-    } else {
-        meta_enc.from_base64()?
-    };
+    let data = base64url::decode_nopad(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
-    let meta = decode(&plain[..]);
-    if meta.is_ok() {
-        Ok(meta.unwrap())
-    } else {
-        // Old format
-        let (filename, time): (String, u64) = decode(&plain[..]).unwrap();
-        Ok((filename, time, false))
-    }
+    Ok(deserialize(&plain[..])?)
 }

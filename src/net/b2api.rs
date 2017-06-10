@@ -12,7 +12,7 @@ use hyper::client::response::Response;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
 use hyper::net::HttpsConnector;
 use hyper_openssl::OpensslClient;
-use rustc_serialize::json::Json;
+use serde_json::{self, Value};
 
 header!{(XBzFileName, "X-Bz-File-Name") => [String]}
 header!{(XBzContentSha1, "X-Bz-Content-Sha1") => [String]}
@@ -46,18 +46,18 @@ fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
 
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
-    let reply_json: Json = Json::from_str(reply_data)?;
+    let reply_json: Value = serde_json::from_str(reply_data)?;
 
     if !reply.status.is_success() {
         return Err(From::from(format!("get_frozen_bucket_id failed with error {}: {}",
                                       reply.status.to_u16(),
-                                      reply_json.find("message").unwrap())));
+                                      reply_json["message"])));
     }
 
-    let buckets = reply_json.find("buckets").unwrap().as_array().unwrap();
+    let buckets = reply_json["buckets"].as_array().unwrap();
     for bucket in buckets {
-        if bucket.find("bucketName").unwrap().as_string().unwrap() == "frozen" {
-            return Ok(bucket.find("bucketId").unwrap().as_string().unwrap().to_string())
+        if bucket["bucketName"] == "frozen" {
+            return Ok(bucket["bucketId"].as_str().unwrap().to_string())
         }
     }
     Err(From::from("Bucket 'frozen' not found"))
@@ -88,26 +88,25 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
 
         let reply_data = &mut String::new();
         reply.read_to_string(reply_data)?;
-        let reply_json: Json = Json::from_str(reply_data)?;
+        let reply_json: Value = serde_json::from_str(reply_data)?;
 
         if !reply.status.is_success() {
             return Err(From::from(format!("list_remote_files failed with error {}: {}",
                                           reply.status.to_u16(),
-                                          reply_json.find("message").unwrap())));
+                                          reply_json["message"])));
         }
 
-        for file in reply_json.find("files").unwrap().as_array().unwrap() {
-            let full_name = file.find("fileName").unwrap().as_string().unwrap();
-            let id = file.find("fileId").unwrap().as_string().unwrap();
-            let enc_meta = file.find("fileInfo").unwrap()
-                                    .find("enc_meta").unwrap().as_string().unwrap();
+        for file in reply_json["files"].as_array().unwrap() {
+            let full_name = file["fileName"].as_str().unwrap();
+            let id = file["fileId"].as_str().unwrap();
+            let enc_meta = file["fileInfo"]["enc_meta"].as_str().unwrap();
             let (filename, last_modified, is_symlink) = decode_meta(&b2.key, enc_meta)?;
             files.push(RemoteFile::new(&filename, full_name, id, last_modified, is_symlink)?)
         }
 
-        let maybe_next = reply_json.find("nextFileName").unwrap().as_string();
-        if maybe_next.is_some() {
-            start_filename = Some(maybe_next.unwrap().to_string());
+        let maybe_next = reply_json["nextFileName"].as_str();
+        if let Some(next) = maybe_next {
+            start_filename = Some(next.to_string());
         } else {
             break;
         }
@@ -127,17 +126,17 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
-    let reply_json: Json = Json::from_str(reply_data)?;
+    let reply_json: Value = serde_json::from_str(reply_data)?;
 
     if !reply.status.is_success() {
         return Err(From::from(format!("get_upload_url failed with error {}: {}",
                                       reply.status.to_u16(),
-                                      reply_json.find("message").unwrap())));
+                                      reply_json["message"])));
     }
 
     Ok(B2Upload {
-        url: reply_json.find("uploadUrl").unwrap().as_string().unwrap().to_string(),
-        auth_token: reply_json.find("authorizationToken").unwrap().as_string().unwrap().to_string(),
+        url: reply_json["uploadUrl"].as_str().unwrap().to_string(),
+        auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
     })
 }
 
@@ -196,7 +195,7 @@ fn upload_file_once(b2: &mut B2, filename: &str,
 
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
-    let reply_json: Json = Json::from_str(reply_data)?;
+    let reply_json: Value = serde_json::from_str(reply_data)?;
 
     // Temporary failure is not an error, just asking for an exponential backoff
     if reply.status.to_u16() == 503 || reply.status.to_u16() == 408 {
@@ -207,7 +206,7 @@ fn upload_file_once(b2: &mut B2, filename: &str,
         b2.upload = None;
         return Err(From::from(format!("upload_file failed with error {}: {}",
                                       reply.status.to_u16(),
-                                      reply_json.find("message").unwrap())));
+                                      reply_json["message"])));
     }
 
     Ok(true)
@@ -241,11 +240,11 @@ pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion) -> Result<
     if !reply.status.is_success() {
         let reply_data = &mut String::new();
         reply.read_to_string(reply_data)?;
-        let reply_json: Json = Json::from_str(reply_data)?;
+        let reply_json: Value = serde_json::from_str(reply_data)?;
 
         return Err(From::from(format!("Removal of {} failed with error {}: {}",
                                       file_version.path, reply.status.to_u16(),
-                                      reply_json.find("message").unwrap())));
+                                      reply_json["message"])));
     }
     Ok(())
 }
@@ -262,11 +261,11 @@ pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {
     if !reply.status.is_success() {
         let reply_data = &mut String::new();
         reply.read_to_string(reply_data)?;
-        let reply_json: Json = Json::from_str(reply_data)?;
+        let reply_json: Value = serde_json::from_str(reply_data)?;
 
         return Err(From::from(format!("Hiding of {} failed with error {}: {}",
                                       file_path_hash, reply.status.to_u16(),
-                                      reply_json.find("message").unwrap())));
+                                      reply_json["message"])));
     }
     Ok(())
 }
@@ -283,23 +282,23 @@ pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
             .send()?;
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
-    let reply_json: Json = Json::from_str(reply_data)?;
+    let reply_json: Value = serde_json::from_str(reply_data)?;
 
     if !reply.status.is_success() {
         let mut err_msg = String::from("Backblaze B2 login failure");
-        if let Some(reply_err_msg) = reply_json.find("message") {
-            err_msg += &(String::from(": ")+reply_err_msg.as_string().unwrap());
+        if let Value::String(ref reply_err_msg) = reply_json["message"] {
+            err_msg += &(String::from(": ")+&reply_err_msg);
         }
         return Err(From::from(err_msg));
     }
 
     let mut b2 = B2{
         key: config.key.clone(),
-        acc_id: reply_json.find("accountId").unwrap().as_string().unwrap().to_string(),
-        auth_token: reply_json.find("authorizationToken").unwrap().as_string().unwrap().to_string(),
+        acc_id: reply_json["accountId"].as_str().unwrap().to_string(),
+        auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
         bucket_id: String::new(),
-        api_url: reply_json.find("apiUrl").unwrap().as_string().unwrap().to_string(),
-        download_url: reply_json.find("downloadUrl").unwrap().as_string().unwrap().to_string(),
+        api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
+        download_url: reply_json["downloadUrl"].as_str().unwrap().to_string(),
         upload: None,
     };
     b2.bucket_id = get_frozen_bucket_id(&b2)?;

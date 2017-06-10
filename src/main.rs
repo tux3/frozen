@@ -1,12 +1,18 @@
 #[macro_use]
 extern crate hyper;
 extern crate hyper_openssl;
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
+extern crate serde;
+extern crate data_encoding;
 extern crate bincode;
 extern crate rpassword;
 extern crate libsodium_sys;
 extern crate sodiumoxide;
-extern crate sha1;
+extern crate blake2;
+extern crate sha_1;
+extern crate digest;
 extern crate zstd;
 extern crate pretty_bytes;
 

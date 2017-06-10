@@ -2,7 +2,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::env;
 use std::error::Error;
-use rustc_serialize::json;
+use serde_json;
 use util::*;
 use crypto;
 
@@ -23,7 +23,7 @@ pub struct Config {
     pub compression_level: i32,
 }
 
-#[derive(RustcDecodable, RustcEncodable)]
+#[derive(Serialize, Deserialize)]
 struct ConfigFile {
     pub acc_id: String,
     pub encrypted_app_key: Vec<u8>,
@@ -42,7 +42,7 @@ pub fn read_config() -> Result<Config, Box<Error>> {
     let mut file : File = File::open(get_config_file_path())?;
     let contents = &mut String::new();
     file.read_to_string(contents)?;
-    let config_file: ConfigFile = json::decode(contents)?;
+    let config_file: ConfigFile = serde_json::from_str(&contents)?;
 
     let mut key: crypto::Key;
     let app_key: String;
@@ -95,7 +95,7 @@ pub fn save_config(config : &Config) -> Result<(), Box<Error>> {
         delete_threads: config.delete_threads,
         compression_level: config.compression_level,
     };
-    let encoded = json::encode(&config_file)?;
+    let encoded = serde_json::to_string(&config_file)?;
     file.set_len(0)?;
     file.write_all(encoded.as_bytes())?;
     file.flush()?;

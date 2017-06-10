@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::thread;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use bincode;
-use bincode::rustc_serialize::{encode, decode};
+use bincode::{serialize, deserialize, Infinite};
 use crypto;
 use data::file::{LocalFile, RemoteFile};
 use net::b2api;
@@ -16,7 +15,8 @@ use net::delete::DeleteThread;
 use config::Config;
 use progress::ProgressDataReader;
 
-#[derive(Clone, RustcEncodable, RustcDecodable, PartialEq)]
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackupRoot {
     pub path: String,
     pub path_hash: String,
@@ -94,14 +94,14 @@ pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {
 
     let root_file_data = b2api::download_file(b2, "backup_root");
     if root_file_data.is_ok() {
-        roots = decode(&root_file_data.unwrap()[..]).unwrap();
+        roots = deserialize(&root_file_data.unwrap()[..]).unwrap();
     }
 
     roots
 }
 
 pub fn save_roots(b2: &mut b2api::B2, roots: & mut Vec<BackupRoot>) -> Result<(), Box<Error>> {
-    let data = encode(roots, bincode::SizeLimit::Infinite)?;
+    let data = serialize(roots, Infinite)?;
     let mut data_reader = ProgressDataReader::new(data, None);
     b2api::upload_file(b2, "backup_root", &mut data_reader, None)?;
     Ok(())
