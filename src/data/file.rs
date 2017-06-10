@@ -4,6 +4,7 @@ use std::error::Error;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{Read, Seek, SeekFrom};
+use std::os::unix::fs::PermissionsExt;
 use crypto;
 use util;
 
@@ -12,6 +13,7 @@ pub struct LocalFile {
     pub rel_path: PathBuf,
     pub rel_path_hash: String,
     pub last_modified: u64,
+    pub mode: u32,
 }
 
 #[derive(Eq, Clone)]
@@ -20,6 +22,7 @@ pub struct RemoteFile {
     pub rel_path_hash: String,
     pub id: String,
     pub last_modified: u64,
+    pub mode: u32,
     pub is_symlink: bool,
 }
 
@@ -32,10 +35,12 @@ pub struct RemoteFileVersion {
 impl LocalFile {
     pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> Result<LocalFile, Box<Error>> {
         let rel_path = PathBuf::from(path.strip_prefix(base)?);
+        let meta = fs::symlink_metadata(path)?;
         Ok(LocalFile {
             rel_path_hash: crypto::hash_path(&rel_path.to_string_lossy().to_string(), key),
             rel_path: rel_path,
-            last_modified: util::to_timestamp(fs::symlink_metadata(path)?.modified()?),
+            mode: meta.permissions().mode(),
+            last_modified: util::to_timestamp(meta.modified()?),
         })
     }
 
@@ -72,7 +77,8 @@ impl LocalFile {
 }
 
 impl RemoteFile {
-    pub fn new(filename: &str, fullname: &str, id: &str, last_modified: u64, is_symlink: bool)
+    pub fn new(filename: &str, fullname: &str, id: &str,
+               last_modified: u64, mode: u32, is_symlink: bool)
             -> Result<RemoteFile, Box<Error>> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
@@ -82,8 +88,9 @@ impl RemoteFile {
             rel_path: filename.to_string(),
             rel_path_hash: elements[1].to_string(),
             id: id.to_string(),
-            last_modified: last_modified,
-            is_symlink: is_symlink,
+            last_modified,
+            mode,
+            is_symlink,
         })
     }
 

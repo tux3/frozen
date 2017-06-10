@@ -85,7 +85,8 @@ impl UploadThread {
 
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let mut progress_reader = ProgressDataReader::new(encrypted, Some(tx_progress.clone()));
-            let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified, is_symlink);
+            let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified,
+                                               file.mode, is_symlink);
             let err = b2api::upload_file(&mut b2, &filehash, &mut progress_reader, Some(enc_meta));
             if err.is_err() {
                 tx_progress.send(Progress::Error(

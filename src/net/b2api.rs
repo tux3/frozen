@@ -100,8 +100,8 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
             let full_name = file["fileName"].as_str().unwrap();
             let id = file["fileId"].as_str().unwrap();
             let enc_meta = file["fileInfo"]["enc_meta"].as_str().unwrap();
-            let (filename, last_modified, is_symlink) = decode_meta(&b2.key, enc_meta)?;
-            files.push(RemoteFile::new(&filename, full_name, id, last_modified, is_symlink)?)
+            let (filename, last_modified, mode, is_symlink) = decode_meta(&b2.key, enc_meta)?;
+            files.push(RemoteFile::new(&filename, full_name, id, last_modified, mode, is_symlink)?)
         }
 
         let maybe_next = reply_json["nextFileName"].as_str();
@@ -208,7 +208,8 @@ pub fn upload_file(b2: &mut B2, filename: &str,
         enc_meta.unwrap()
     } else {
         let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        encode_meta(&b2.key, &filename, last_modified, false)
+        let mode = 0o644;
+        encode_meta(&b2.key, &filename, last_modified, mode, false)
     };
 
     let mut backoff = Duration::from_millis(500);

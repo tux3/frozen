@@ -1,7 +1,7 @@
 use std::thread;
 use std::error::Error;
-use std::fs::{self, File};
-use std::os::unix::fs::symlink;
+use std::fs::{self, OpenOptions};
+use std::os::unix::fs::{symlink, OpenOptionsExt};
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
@@ -93,7 +93,10 @@ impl DownloadThread {
                 fs::remove_file(&save_path).ok();
                 symlink(link_target, save_path).unwrap();
             } else {
-                let mut fd = File::create(save_path).unwrap();
+                let mut options = OpenOptions::new();
+                options.mode(file.mode);
+                let mut fd = options.write(true).create(true).truncate(true)
+                                    .open(save_path).unwrap();
                 fd.write_all(contents.as_ref()).unwrap();
             }
 

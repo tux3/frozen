@@ -81,13 +81,13 @@ pub fn randombytes(count: usize) -> Vec<u8> {
     randombytes::randombytes(count)
 }
 
-pub fn encode_meta(key: &Key, filename: &str, time: u64, is_symlink: bool) -> String {
-    let data = (filename, time, is_symlink);
+pub fn encode_meta(key: &Key, filename: &str, time: u64, mode: u32, is_symlink: bool) -> String {
+    let data = (filename, time, mode, is_symlink);
     let encoded = serialize(&data, Infinite).unwrap();
     base64url::encode_nopad(&encrypt(&encoded, key))
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, bool), Box<Error>> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, u32, bool), Box<Error>> {
     let data = base64url::decode_nopad(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)
