@@ -18,6 +18,7 @@ pub struct LocalFile {
 pub struct RemoteFile {
     pub rel_path: String,
     pub rel_path_hash: String,
+    pub id: String,
     pub last_modified: u64,
     pub is_symlink: bool,
 }
@@ -70,7 +71,7 @@ impl LocalFile {
 }
 
 impl RemoteFile {
-    pub fn new(filename: &str, fullname: &str, last_modified: u64, is_symlink: bool)
+    pub fn new(filename: &str, fullname: &str, id: &str, last_modified: u64, is_symlink: bool)
             -> Result<RemoteFile, Box<Error>> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
@@ -79,6 +80,7 @@ impl RemoteFile {
         Ok(RemoteFile{
             rel_path: filename.to_string(),
             rel_path_hash: elements[1].to_string(),
+            id: id.to_string(),
             last_modified: last_modified,
             is_symlink: is_symlink,
         })

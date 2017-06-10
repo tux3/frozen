@@ -97,11 +97,12 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
         }
 
         for file in reply_json.find("files").unwrap().as_array().unwrap() {
-            let fullname = file.find("fileName").unwrap().as_string().unwrap();
+            let full_name = file.find("fileName").unwrap().as_string().unwrap();
+            let id = file.find("fileId").unwrap().as_string().unwrap();
             let enc_meta = file.find("fileInfo").unwrap()
                                     .find("enc_meta").unwrap().as_string().unwrap();
             let (filename, last_modified, is_symlink) = decode_meta(&b2.key, enc_meta)?;
-            files.push(RemoteFile::new(&filename, &fullname, last_modified, is_symlink)?)
+            files.push(RemoteFile::new(&filename, full_name, id, last_modified, is_symlink)?)
         }
 
         let maybe_next = reply_json.find("nextFileName").unwrap().as_string();
