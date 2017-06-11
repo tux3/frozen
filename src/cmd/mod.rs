@@ -1,11 +1,10 @@
-pub use self::backup::backup;
-pub use self::restore::restore;
-pub use self::list::list;
-pub use self::delete::delete;
-pub use self::unlock::unlock;
+macro_rules! cmd_modules {
+    ( $( $name:ident ),* ) => {
+        $(
+            mod $name;
+            pub use self::$name::$name;
+        )*
+    };
+}
 
-mod backup;
-mod restore;
-mod list;
-mod delete;
-mod unlock;
+cmd_modules!(backup, restore, list, delete, unlock);
