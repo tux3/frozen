@@ -17,6 +17,7 @@ pub struct Config {
     pub acc_id: String,
     pub app_key: String,
     pub key: crypto::Key,
+    pub bucket_name: String,
     pub upload_threads: u16,
     pub download_threads: u16,
     pub delete_threads: u16,
@@ -27,6 +28,7 @@ pub struct Config {
 struct ConfigFile {
     pub acc_id: String,
     pub encrypted_app_key: Vec<u8>,
+    pub bucket_name: String,
     pub upload_threads: u16,
     pub download_threads: u16,
     pub delete_threads: u16,
@@ -61,8 +63,9 @@ pub fn read_config() -> Result<Config, Box<Error>> {
 
     Ok(Config{
         acc_id: config_file.acc_id,
-        app_key: app_key,
-        key: key,
+        app_key,
+        key,
+        bucket_name: config_file.bucket_name,
         upload_threads: config_file.upload_threads,
         download_threads: config_file.download_threads,
         delete_threads: config_file.delete_threads,
@@ -73,11 +76,13 @@ pub fn read_config() -> Result<Config, Box<Error>> {
 pub fn create_config_interactive() -> Config {
     let acc_id = prompt("Enter your account ID");
     let app_key = prompt("Enter you application key");
+    let bucket_name = prompt("Enter your backup bucket name");
     let passwd = prompt_password("Choose a backup password");
     Config {
         key: crypto::derive_key(&passwd, &acc_id),
-        acc_id: acc_id,
-        app_key: app_key,
+        acc_id,
+        app_key,
+        bucket_name,
         upload_threads: UPLOAD_THREADS_DEFAULT,
         download_threads: DOWNLOAD_THREADS_DEFAULT,
         delete_threads: DELETE_THREADS_DEFAULT,
@@ -90,6 +95,7 @@ pub fn save_config(config : &Config) -> Result<(), Box<Error>> {
     let config_file = ConfigFile{
         acc_id: config.acc_id.clone(),
         encrypted_app_key: crypto::encrypt(&Vec::from(config.app_key.as_str()), &config.key),
+        bucket_name: config.bucket_name.clone(),
         upload_threads: config.upload_threads,
         download_threads: config.download_threads,
         delete_threads: config.delete_threads,

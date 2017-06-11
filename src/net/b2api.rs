@@ -35,7 +35,7 @@ pub struct B2 {
     pub upload: Option<B2Upload>,
 }
 
-fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
+fn get_bucket_id(b2: &B2, bucket_name: &str) -> Result<String, Box<Error>> {
     let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_buckets";
@@ -49,18 +49,18 @@ fn get_frozen_bucket_id(b2: &B2) -> Result<String, Box<Error>> {
     let reply_json: Value = serde_json::from_str(reply_data)?;
 
     if !reply.status.is_success() {
-        return Err(From::from(format!("get_frozen_bucket_id failed with error {}: {}",
+        return Err(From::from(format!("get_bucket_id failed with error {}: {}",
                                       reply.status.to_u16(),
                                       reply_json["message"])));
     }
 
     let buckets = reply_json["buckets"].as_array().unwrap();
     for bucket in buckets {
-        if bucket["bucketName"] == "frozen" {
+        if bucket["bucketName"] == bucket_name {
             return Ok(bucket["bucketId"].as_str().unwrap().to_string())
         }
     }
-    Err(From::from("Bucket 'frozen' not found"))
+    Err(From::from(format!("Bucket '{}' not found", bucket_name)))
 }
 
 pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<Error>> {
@@ -365,7 +365,7 @@ pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
         download_url: reply_json["downloadUrl"].as_str().unwrap().to_string(),
         upload: None,
     };
-    b2.bucket_id = get_frozen_bucket_id(&b2)?;
+    b2.bucket_id = get_bucket_id(&b2, &config.bucket_name)?;
     Ok(b2)
 }
 
