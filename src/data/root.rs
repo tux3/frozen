@@ -78,7 +78,7 @@ impl BackupRoot {
 
     pub fn lock(&mut self, b2: &b2api::B2) -> Result<(), Box<Error>> {
         let rand_str = hex::encode(&crypto::randombytes(4));
-        let lock_path_prefix = self.path_hash.to_owned()+"/lock.";
+        let lock_path_prefix = self.path_hash.to_owned()+".lock.";
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
         let mut lock_b2 = b2.clone();
 
