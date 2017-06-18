@@ -210,7 +210,7 @@ pub fn open_root(b2: &b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
 pub fn wipe_locks(b2: &mut b2api::B2, roots: &Vec<BackupRoot>, path: &str)
                         -> Result<(), Box<Error>> {
     if let Some(root) = roots.into_iter().find(|r| r.path == *path) {
-        let lock_path_prefix = root.path_hash.to_owned() + "/lock.";
+        let lock_path_prefix = root.path_hash.to_owned() + ".lock.";
         let locks = b2api::list_remote_file_versions(&b2, &lock_path_prefix)?;
 
         println!("{} lock files to remove", locks.len());
