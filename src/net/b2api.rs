@@ -10,7 +10,7 @@ use config::Config;
 use progress::{ProgressDataReader, Progress};
 use hyper::client::{Client, Body};
 use hyper::client::response::Response;
-use hyper::header::{Authorization, Basic, ContentType, ContentLength};
+use hyper::header::{Authorization, Basic, ContentType, ContentLength, Connection};
 use hyper::net::HttpsConnector;
 use hyper_openssl::OpensslClient;
 use serde_json::{self, Value};
@@ -25,7 +25,6 @@ pub struct B2Upload {
     pub auth_token: String,
 }
 
-#[derive(Clone, PartialEq)]
 pub struct B2 {
     pub key: crypto::Key,
     pub bucket_id: String,
@@ -34,6 +33,22 @@ pub struct B2 {
     pub api_url: String,
     pub download_url: String,
     pub upload: Option<B2Upload>,
+    pub client: Client,
+}
+
+impl Clone for B2 {
+    fn clone(&self) -> Self {
+        B2{
+            key: self.key.clone(),
+            bucket_id: self.bucket_id.clone(),
+            acc_id: self.acc_id.clone(),
+            auth_token: self.auth_token.clone(),
+            api_url: self.api_url.clone(),
+            download_url: self.download_url.clone(),
+            upload: self.upload.clone(),
+            client: make_client(),
+        }
+    }
 }
 
 macro_rules! retry_wrapper {
@@ -60,11 +75,11 @@ fn warning(maybe_progress: Option<&Sender<Progress>>, msg: &str) {
 }
 
 fn get_bucket_id(b2: &B2, bucket_name: &str) -> Result<String, Box<Error>> {
-    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_buckets";
-    let mut reply: Response = client.post(&url)
+    let mut reply: Response = b2.client.post(&url)
         .header(basic_auth)
+        .header(Connection::keep_alive())
         .body(&format!("{{\"accountId\":\"{}\"}}", b2.acc_id))
         .send()?;
 
@@ -88,7 +103,6 @@ fn get_bucket_id(b2: &B2, bucket_name: &str) -> Result<String, Box<Error>> {
 }
 
 pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<Error>> {
-    let client = make_client();
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
 
     let body_base = format!("\"bucketId\":\"{}\",\
@@ -105,8 +119,9 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
         } else {
             body = format!("{{{}}}", body_base)
         }
-        let mut reply: Response = client.post(&url)
+        let mut reply: Response = b2.client.post(&url)
             .header(Authorization(b2.auth_token.clone()))
+            .header(Connection::keep_alive())
             .body(&body)
             .send()?;
 
@@ -141,7 +156,6 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
 
 pub fn list_remote_file_versions(b2: &B2, prefix: &str)
                                  -> Result<Vec<RemoteFileVersion>, Box<Error>> {
-    let client = make_client();
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
 
     let body_base = format!("\"bucketId\":\"{}\",\
@@ -160,8 +174,9 @@ pub fn list_remote_file_versions(b2: &B2, prefix: &str)
         } else {
             body = format!("{{{}}}", body_base)
         }
-        let mut reply: Response = client.post(&url)
+        let mut reply: Response = b2.client.post(&url)
             .header(Authorization(b2.auth_token.clone()))
+            .header(Connection::keep_alive())
             .body(&body)
             .send()?;
 
@@ -201,11 +216,11 @@ pub fn list_remote_file_versions(b2: &B2, prefix: &str)
 }
 
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
-    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_get_upload_url";
-    let mut reply: Response = client.post(&url)
+    let mut reply: Response = b2.client.post(&url)
         .header(basic_auth)
+        .header(Connection::keep_alive())
         .body(&format!("{{\"bucketId\":\"{}\"}}", b2.bucket_id))
         .send()?;
 
@@ -228,11 +243,11 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
 retry_wrapper!{'retry_delete,
 pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion, progress: Option<&Sender<Progress>>)
         -> Result<(), Box<Error>> {
-    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
-    let mut reply: Response = match client.post(&url)
+    let mut reply: Response = match b2.client.post(&url)
         .header(basic_auth)
+        .header(Connection::keep_alive())
         .body(&format!("{{\"fileId\": \"{}\", \
                           \"fileName\": \"{}\"}}", file_version.id, file_version.path))
         .send() {
@@ -242,11 +257,11 @@ pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion, progress: 
                 continue 'retry_delete;
             }
         };
-    if !reply.status.is_success() {
-        let reply_data = &mut String::new();
-        reply.read_to_string(reply_data)?;
-        let reply_json: Value = serde_json::from_str(reply_data)?;
 
+    let reply_data = &mut String::new();
+    reply.read_to_string(reply_data)?;
+    if !reply.status.is_success() {
+        let reply_json: Value = serde_json::from_str(reply_data)?;
         return Err(From::from(format!("Removal of {} failed with error {}: {}",
                                       file_version.path, reply.status.to_u16(),
                                       reply_json["message"])));
@@ -271,14 +286,14 @@ pub fn upload_file(b2: &mut B2, filename: &str,
     };
 
     let reply = {
-        let client = make_client();
         let sha1 = crypto::sha1_string(data.as_slice());
         let data_size = data.len() as u64;
         let body = Body::SizedBody(data, data_size);
         let b2upload = &b2.upload.as_mut().unwrap();
         let basic_auth = Authorization(b2upload.auth_token.clone());
-        client.post(&b2upload.url)
+        b2.client.post(&b2upload.url)
             .header(basic_auth)
+            .header(Connection::keep_alive())
             .header(XBzFileName(filename.to_string()))
             .header(ContentType("application/octet-stream".parse().unwrap()))
             .header(ContentLength(data_size))
@@ -318,11 +333,11 @@ pub fn upload_file(b2: &mut B2, filename: &str,
 }}
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
-    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.download_url.clone()+"/file/frozen/"+filename;
-    let mut reply: Response = client.get(&url)
+    let mut reply: Response = b2.client.get(&url)
         .header(basic_auth)
+        .header(Connection::keep_alive())
         .send()?;
     if !reply.status.is_success() {
         return Err(From::from(format!("Download of {} failed with error {}",
@@ -334,17 +349,18 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
 }
 
 pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {
-    let client = make_client();
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_hide_file";
-    let mut reply: Response = client.post(&url)
+    let mut reply: Response = b2.client.post(&url)
         .header(basic_auth)
+        .header(Connection::keep_alive())
         .body(&format!("{{\"bucketId\": \"{}\", \
                           \"fileName\": \"{}\"}}", b2.bucket_id, file_path_hash))
         .send()?;
+
+    let reply_data = &mut String::new();
+    reply.read_to_string(reply_data)?;
     if !reply.status.is_success() {
-        let reply_data = &mut String::new();
-        reply.read_to_string(reply_data)?;
         let reply_json: Value = serde_json::from_str(reply_data)?;
 
         return Err(From::from(format!("Hiding of {} failed with error {}: {}",
@@ -363,6 +379,7 @@ pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
 
     let mut reply: Response = client.get("https://api.backblazeb2.com/b2api/v1/b2_authorize_account")
             .header(basic_auth)
+            .header(Connection::keep_alive())
             .send()?;
     let reply_data = &mut String::new();
     reply.read_to_string(reply_data)?;
@@ -384,6 +401,7 @@ pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
         api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
         download_url: reply_json["downloadUrl"].as_str().unwrap().to_string(),
         upload: None,
+        client: client,
     };
     b2.bucket_id = get_bucket_id(&b2, &config.bucket_name)?;
     Ok(b2)

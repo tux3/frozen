@@ -16,7 +16,7 @@ use net::delete::DeleteThread;
 use config::Config;
 use progress::ProgressDataReader;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BackupRoot {
     pub path: String,
     pub path_hash: String,
