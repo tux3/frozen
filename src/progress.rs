@@ -7,6 +7,7 @@ use net::progress_thread;
 
 pub enum Progress {
     Started(String),
+    Warning(String),
     Error(String),
     Transferred(String),
     Deleted(String),
@@ -41,6 +42,10 @@ impl ProgressDataReader {
 
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
+    }
+
+    pub fn get_progress_sender(&self) -> Option<&Sender<Progress>> {
+        self.tx_progress.as_ref()
     }
 }
 
@@ -85,6 +90,9 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
         Encrypting(_) => write_at(off, VT100::StyleActive,    "Encrypting         "),
         Decrypting(_) => write_at(off, VT100::StyleActive,    "Decrypting         "),
         Deleting => write_at(off, VT100::StyleActive,      "Deleting           "),
+        Warning(ref str) => {
+            insert_at(num_threads, VT100::StyleWarning, &format!("Warning: {}", str));
+        },
         Error(ref str) => {
             rewrite_at(off, VT100::StyleActive,               "Done               ");
             insert_at(num_threads, VT100::StyleError, &format!("Error: {}", str));

@@ -8,6 +8,7 @@ pub enum VT100 {
     MoveDown(usize),
     StyleReset,
     StyleError,
+    StyleWarning,
     StyleActive,
 }
 
@@ -22,6 +23,7 @@ impl Display for VT100 {
             VT100::MoveDown(n) => write!(f, "\x1B[{}B", n),
             VT100::StyleReset => f.write_str("\x1B[0m"),
             VT100::StyleError => f.write_str("\x1B[31m"),
+            VT100::StyleWarning => f.write_str("\x1B[33m"),
             VT100::StyleActive => f.write_str("\x1B[1m"),
         }
     }

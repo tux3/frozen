@@ -51,7 +51,7 @@ impl DeleteThread {
                 path: root.path_hash.clone()+"/"+&file.rel_path_hash,
                 id: file.id,
             };
-            let err = b2api::delete_file_version(&b2, &version);
+            let err = b2api::delete_file_version(&b2, &version, Some(&tx_progress));
             if err.is_err() {
                 tx_progress.send(Progress::Error(
                     format!("Failed to delete last version of \"{}\": {}", file.rel_path,

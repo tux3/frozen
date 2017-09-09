@@ -3,10 +3,11 @@ use std::io::Read;
 use std::vec::Vec;
 use std::thread::sleep;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use std::sync::mpsc::Sender;
 use crypto::{self, encode_meta, decode_meta};
 use data::file::{RemoteFile, RemoteFileVersion};
 use config::Config;
-use progress::ProgressDataReader;
+use progress::{ProgressDataReader, Progress};
 use hyper::client::{Client, Body};
 use hyper::client::response::Response;
 use hyper::header::{Authorization, Basic, ContentType, ContentLength};
@@ -33,6 +34,29 @@ pub struct B2 {
     pub api_url: String,
     pub download_url: String,
     pub upload: Option<B2Upload>,
+}
+
+macro_rules! retry_wrapper {
+($retryname:tt, pub fn $name:ident ( $($argname:ident : $argtype:ty),* ) -> $rettype:ty $body:block) => (
+    pub fn $name( $($argname : $argtype),* ) -> $rettype {
+        let mut backoff = Duration::from_millis(100);
+        $retryname: for i in 0..8 {
+            if i > 0 {
+                sleep(backoff);
+                backoff *= 2;
+            }
+
+            return $body
+        }
+        return Err(From::from("Too many failed attempts"));
+    }
+)}
+
+fn warning(maybe_progress: Option<&Sender<Progress>>, msg: &str) {
+    match maybe_progress {
+        Some(progress) => progress.send(Progress::Warning(msg.to_owned())).unwrap_or(()),
+        None => println!("Warning: {}", msg),
+    }
 }
 
 fn get_bucket_id(b2: &B2, bucket_name: &str) -> Result<String, Box<Error>> {
@@ -201,35 +225,50 @@ fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     })
 }
 
+retry_wrapper!{'retry_delete,
+pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion, progress: Option<&Sender<Progress>>)
+        -> Result<(), Box<Error>> {
+    let client = make_client();
+    let basic_auth = Authorization(b2.auth_token.clone());
+    let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
+    let mut reply: Response = match client.post(&url)
+        .header(basic_auth)
+        .body(&format!("{{\"fileId\": \"{}\", \
+                          \"fileName\": \"{}\"}}", file_version.id, file_version.path))
+        .send() {
+            Ok(v) => v,
+            Err(err) => {
+                warning(progress, err.description());
+                continue 'retry_delete;
+            }
+        };
+    if !reply.status.is_success() {
+        let reply_data = &mut String::new();
+        reply.read_to_string(reply_data)?;
+        let reply_json: Value = serde_json::from_str(reply_data)?;
+
+        return Err(From::from(format!("Removal of {} failed with error {}: {}",
+                                      file_version.path, reply.status.to_u16(),
+                                      reply_json["message"])));
+    }
+    Ok(())
+}}
+
+retry_wrapper!{'retry_upload,
 pub fn upload_file(b2: &mut B2, filename: &str,
-                        data: &mut ProgressDataReader,
-                        enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<Error>> {
+                   data: &mut ProgressDataReader,
+                    enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<Error>> {
+    if b2.upload.is_none() {
+        b2.upload = Some(get_upload_url(b2)?);
+    }
+
     let enc_meta = if enc_meta.is_some() {
-        enc_meta.unwrap()
+        enc_meta.as_ref().unwrap().to_owned()
     } else {
         let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let mode = 0o644;
         encode_meta(&b2.key, &filename, last_modified, mode, false)
     };
-
-    let mut backoff = Duration::from_millis(500);
-    for _ in 0..5 {
-        if let Some(upload_version) = upload_file_once(b2, filename, data, &enc_meta)? {
-            return Ok(upload_version);
-        } else {
-            sleep(backoff);
-            backoff *= 2;
-        }
-    }
-    return Err(From::from("Too many failed attempts"));
-}
-
-fn upload_file_once(b2: &mut B2, filename: &str,
-                   data: &mut ProgressDataReader,
-                   enc_meta: &str) -> Result<Option<RemoteFileVersion>, Box<Error>> {
-    if b2.upload.is_none() {
-        b2.upload = Some(get_upload_url(b2)?);
-    }
 
     let reply = {
         let client = make_client();
@@ -249,8 +288,9 @@ fn upload_file_once(b2: &mut B2, filename: &str,
             .send()
     };
 
-    if reply.is_err() {
-        return Ok(None)
+    if let Err(err) = reply {
+        warning(data.get_progress_sender(), err.description());
+        continue 'retry_upload;
     }
     let mut reply = reply.unwrap();
 
@@ -260,7 +300,8 @@ fn upload_file_once(b2: &mut B2, filename: &str,
 
     // Temporary failure is not an error, just asking for an exponential backoff
     if reply.status.to_u16() == 503 || reply.status.to_u16() == 408 {
-        return Ok(None);
+        warning(data.get_progress_sender(), reply.status.canonical_reason().unwrap_or("Temporary upload failure"));
+        continue 'retry_upload;
     }
 
     if !reply.status.is_success() {
@@ -270,11 +311,11 @@ fn upload_file_once(b2: &mut B2, filename: &str,
                                       reply_json["message"])));
     }
 
-    Ok(Some(RemoteFileVersion {
+    Ok(RemoteFileVersion {
         path: reply_json["fileName"].as_str().unwrap().to_string(),
         id: reply_json["fileId"].as_str().unwrap().to_string(),
-    }))
-}
+    })
+}}
 
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     let client = make_client();
@@ -290,27 +331,6 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     let mut reply_data = Vec::new();
     reply.read_to_end(&mut reply_data)?;
     Ok(reply_data)
-}
-
-pub fn delete_file_version(b2: &B2, file_version: &RemoteFileVersion) -> Result<(), Box<Error>> {
-    let client = make_client();
-    let basic_auth = Authorization(b2.auth_token.clone());
-    let url = b2.api_url.clone()+"/b2api/v1/b2_delete_file_version";
-    let mut reply: Response = client.post(&url)
-        .header(basic_auth)
-        .body(&format!("{{\"fileId\": \"{}\", \
-                          \"fileName\": \"{}\"}}", file_version.id, file_version.path))
-        .send()?;
-    if !reply.status.is_success() {
-        let reply_data = &mut String::new();
-        reply.read_to_string(reply_data)?;
-        let reply_json: Value = serde_json::from_str(reply_data)?;
-
-        return Err(From::from(format!("Removal of {} failed with error {}: {}",
-                                      file_version.path, reply.status.to_u16(),
-                                      reply_json["message"])));
-    }
-    Ok(())
 }
 
 pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {

@@ -108,7 +108,7 @@ impl BackupRoot {
             return Ok(());
         }
         let (lock_version, lock_b2) = self.lock.take().unwrap();
-        b2api::delete_file_version(&lock_b2, &lock_version)?;
+        b2api::delete_file_version(&lock_b2, &lock_version, None)?;
         Ok(())
     }
 }
@@ -215,7 +215,7 @@ pub fn wipe_locks(b2: &mut b2api::B2, roots: &Vec<BackupRoot>, path: &str)
 
         println!("{} lock files to remove", locks.len());
         for lock_version in &locks {
-            b2api::delete_file_version(&b2, &lock_version)?;
+            b2api::delete_file_version(&b2, &lock_version, None)?;
         }
         Ok(())
     } else {
