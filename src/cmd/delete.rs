@@ -13,9 +13,6 @@ use util;
 
 pub fn delete(config: &Config, path: &str) -> Result<(), Box<Error>> {
     let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
-    if !Path::new(&path).is_dir() {
-        return Err(From::from(format!("{} is not a folder!", &path)))
-    }
 
     println!("Connecting to Backblaze B2");
     let mut b2 = &mut b2api::authenticate(config)?;
