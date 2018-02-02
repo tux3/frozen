@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fs;
-use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use std::sync::Arc;

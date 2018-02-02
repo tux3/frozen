@@ -55,7 +55,7 @@ macro_rules! retry_wrapper {
 ($retryname:tt, pub fn $name:ident ( $($argname:ident : $argtype:ty),* ) -> $rettype:ty $body:block) => (
     pub fn $name( $($argname : $argtype),* ) -> $rettype {
         let mut backoff = Duration::from_millis(100);
-        $retryname: for i in 0..8 {
+        $retryname: for i in 0..10 {
             if i > 0 {
                 sleep(backoff);
                 backoff *= 2;
@@ -102,6 +102,7 @@ fn get_bucket_id(b2: &B2, bucket_name: &str) -> Result<String, Box<Error>> {
     Err(From::from(format!("Bucket '{}' not found", bucket_name)))
 }
 
+retry_wrapper!{'retry_list_files,
 pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<Error>> {
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_names";
 
@@ -152,8 +153,9 @@ pub fn list_remote_files(b2: &B2, prefix: &str) -> Result<Vec<RemoteFile>, Box<E
     }
 
     Ok(files)
-}
+}}
 
+retry_wrapper!{'retry_list_file_versions,
 pub fn list_remote_file_versions(b2: &B2, prefix: &str)
                                  -> Result<Vec<RemoteFileVersion>, Box<Error>> {
     let url = b2.api_url.clone()+"/b2api/v1/b2_list_file_versions";
@@ -213,7 +215,7 @@ pub fn list_remote_file_versions(b2: &B2, prefix: &str)
     }
 
     Ok(files)
-}
+}}
 
 fn get_upload_url(b2: &mut B2) -> Result<B2Upload, Box<Error>> {
     let basic_auth = Authorization(b2.auth_token.clone());
@@ -332,6 +334,7 @@ pub fn upload_file(b2: &mut B2, filename: &str,
     })
 }}
 
+retry_wrapper!{'retry_download,
 pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.download_url.clone()+"/file/frozen/"+filename;
@@ -346,8 +349,9 @@ pub fn download_file(b2: &B2, filename: &str) -> Result<Vec<u8>, Box<Error>> {
     let mut reply_data = Vec::new();
     reply.read_to_end(&mut reply_data)?;
     Ok(reply_data)
-}
+}}
 
+retry_wrapper!{'retry_hide,
 pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {
     let basic_auth = Authorization(b2.auth_token.clone());
     let url = b2.api_url.clone()+"/b2api/v1/b2_hide_file";
@@ -368,7 +372,7 @@ pub fn hide_file(b2: &B2, file_path_hash: &str) -> Result<(), Box<Error>> {
                                       reply_json["message"])));
     }
     Ok(())
-}
+}}
 
 pub fn authenticate(config: &Config) -> Result<B2, Box<Error>> {
     let client = make_client();

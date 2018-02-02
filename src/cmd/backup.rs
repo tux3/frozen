@@ -16,7 +16,7 @@ pub fn backup(config: &Config, path: &str) -> Result<(), Box<Error>> {
     }
 
     println!("Connecting to Backblaze B2");
-    let mut b2 = &mut b2api::authenticate(config)?;
+    let b2 = &mut b2api::authenticate(config)?;
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(b2);
