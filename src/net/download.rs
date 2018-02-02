@@ -87,17 +87,36 @@ impl DownloadThread {
             let contents = contents.unwrap();
 
             let save_path = target.to_owned()+"/"+&file.rel_path;
-            fs::create_dir_all(Path::new(&save_path).parent().unwrap()).unwrap();
+            if fs::create_dir_all(Path::new(&save_path).parent().unwrap()).is_err() {
+                tx_progress.send(Progress::Error(
+                    format!("Failed to create path to file \"{}\"", file.rel_path)))?;
+                continue;
+            }
             if file.is_symlink {
                 let link_target = String::from_utf8(contents).unwrap();
                 fs::remove_file(&save_path).ok();
-                symlink(link_target, save_path).unwrap();
+                if symlink(link_target, save_path).is_err() {
+                    tx_progress.send(Progress::Error(
+                        format!("Failed to create symlink \"{}\"", file.rel_path)))?;
+                    continue;
+                }
             } else {
                 let mut options = OpenOptions::new();
                 options.mode(file.mode);
-                let mut fd = options.write(true).create(true).truncate(true)
-                                    .open(save_path).unwrap();
-                fd.write_all(contents.as_ref()).unwrap();
+                let mut fd = match options.write(true).create(true).truncate(true)
+                                    .open(save_path) {
+                    Ok(x) => x,
+                    Err(_) => {
+                        tx_progress.send(Progress::Error(
+                            format!("Failed to open file \"{}\"", file.rel_path)))?;
+                        continue;
+                    },
+                };
+                if fd.write_all(contents.as_ref()).is_err() {
+                    tx_progress.send(Progress::Error(
+                        format!("Failed to write file \"{}\"", file.rel_path)))?;
+                    continue;
+                }
             }
 
             tx_progress.send(Progress::Transferred(file.rel_path.clone()))?;
