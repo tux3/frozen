@@ -1,22 +1,22 @@
 use std::error::Error;
 use std::path::Path;
 use std::fs;
-use config::Config;
-use data::root;
-use net::b2api;
-use util::prompt_yes_no;
+use crate::config::Config;
+use crate::data::root;
+use crate::net::b2::B2;
+use crate::util::prompt_yes_no;
 
-pub fn unlock(config: &Config, path: &str) -> Result<(), Box<Error>> {
+pub async fn unlock<'a>(config: &'a Config, path: &'a str) -> Result<(), Box<dyn Error + 'static>> {
     let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
     if !Path::new(&path).is_dir() {
         return Err(From::from(format!("{} is not a folder!", &path)))
     }
 
     println!("Connecting to Backblaze B2");
-    let b2 = &mut b2api::authenticate(config)?;
+    let mut b2 = await!(B2::authenticate(config))?;
 
     println!("Downloading backup metadata");
-    let roots = root::fetch_roots(b2);
+    let roots = await!(root::fetch_roots(&b2))?;
 
     if !prompt_yes_no("Are you sure you want to wipe the lock files for this folder?\n\
                         Do not do this unless you know the lock is expired!") {
@@ -25,7 +25,7 @@ pub fn unlock(config: &Config, path: &str) -> Result<(), Box<Error>> {
     }
 
     println!("Unlocking backup folder {}", path);
-    root::wipe_locks(b2, &roots, &path)?;
+    await!(root::wipe_locks(&mut b2, &roots, &path))?;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-pub mod b2api;
+pub mod b2;
 pub mod progress_thread;
 pub mod upload;
 pub mod download;

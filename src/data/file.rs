@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
-use crypto;
-use util;
+use crate::crypto;
+use crate::util;
 
 #[derive(Clone)]
 pub struct LocalFile {
@@ -33,12 +33,12 @@ pub struct RemoteFileVersion {
 }
 
 impl LocalFile {
-    pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> Result<LocalFile, Box<Error>> {
+    pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> Result<LocalFile, Box<dyn Error>> {
         let rel_path = PathBuf::from(path.strip_prefix(base)?);
         let meta = fs::symlink_metadata(path)?;
         Ok(LocalFile {
             rel_path_hash: crypto::hash_path(&rel_path.to_string_lossy().to_string(), key),
-            rel_path: rel_path,
+            rel_path,
             mode: meta.permissions().mode(),
             last_modified: util::to_timestamp(meta.modified()?),
         })
@@ -48,17 +48,17 @@ impl LocalFile {
         self.rel_path.to_string_lossy()
     }
 
-    pub fn is_symlink(&self, root_path: &str) -> Result<bool, Box<Error>> {
+    pub fn is_symlink(&self, root_path: &str) -> Result<bool, Box<dyn Error>> {
         let fullpath = root_path.to_owned()+"/"+&self.path_str();
         Ok(fs::symlink_metadata(fullpath)?.file_type().is_symlink())
     }
 
-    pub fn readlink(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
+    pub fn readlink(&self, root_path: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         let fullpath = root_path.to_owned()+"/"+&self.path_str();
         Ok(Vec::from(fs::read_link(fullpath)?.to_str().unwrap().as_bytes()))
     }
 
-    pub fn read_all(&self, root_path: &str) -> Result<Vec<u8>, Box<Error>> {
+    pub fn read_all(&self, root_path: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         let mut file : File = File::open(root_path.to_owned()+"/"+&self.path_str())?;
         let mut size = file.seek(SeekFrom::End(0))? as usize;
         file.seek(SeekFrom::Start(0))?;
@@ -78,8 +78,7 @@ impl LocalFile {
 
 impl RemoteFile {
     pub fn new(filename: &str, fullname: &str, id: &str,
-               last_modified: u64, mode: u32, is_symlink: bool)
-            -> Result<RemoteFile, Box<Error>> {
+               last_modified: u64, mode: u32, is_symlink: bool) -> Result<RemoteFile, Box<dyn Error>> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
             return Err(From::from("Invalid remote file name, expected exactly one slash"));

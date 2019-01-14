@@ -1,103 +1,108 @@
-use std::thread;
 use std::error::Error;
-use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, Receiver};
-use data::file::{LocalFile};
-use data::root::BackupRoot;
-use net::{b2api, progress_thread};
-use config::Config;
-use crypto;
-use progress::{Progress, ProgressDataReader};
 use zstd;
+use futures::channel::mpsc::{channel, Sender, Receiver};
+use futures::{sink::SinkExt, stream::StreamExt};
+use crate::data::file::{LocalFile};
+use crate::data::root::BackupRoot;
+use crate::net::{b2, progress_thread};
+use crate::config::Config;
+use crate::crypto;
+use crate::progress::{Progress, ProgressDataReader};
 
 pub struct UploadThread {
-    pub tx: SyncSender<Option<LocalFile>>,
+    pub tx: Sender<Option<LocalFile>>,
     pub rx: Receiver<Progress>,
-    pub handle: thread::JoinHandle<()>,
 }
 
 impl progress_thread::ProgressThread for UploadThread {
-    fn progress_rx(&self) -> &Receiver<Progress> {
-        &self.rx
+    fn progress_rx(&mut self) -> &mut Receiver<Progress> {
+        &mut self.rx
     }
 }
 
 impl UploadThread {
-    pub fn new(root: &BackupRoot, b2: &b2api::B2, config: &Config) -> UploadThread {
+    pub fn new(root: &BackupRoot, b2: &b2::B2, config: &Config) -> UploadThread {
         let root = root.clone();
         let config = config.clone();
-        let mut b2: b2api::B2 = b2.to_owned();
+        let (tx_file, rx_file) = channel(1);
+        let (tx_progress, rx_progress) = channel(16);
+        let mut b2 = b2.to_owned();
         b2.upload = None;
-        let (tx_file, rx_file) = sync_channel(1);
-        let (tx_progress, rx_progress) = channel();
-        let handle = thread::spawn(move || {
-            let _ = UploadThread::upload(root, b2, config, rx_file, tx_progress);
+        b2.tx_progress = Some(tx_progress.clone());
+
+        crate::futures_compat::tokio_spawn(async {
+            let _ = await!(UploadThread::upload(root, b2, config, rx_file, tx_progress));
         });
 
         UploadThread {
             tx: tx_file,
             rx: rx_progress,
-            handle: handle,
         }
     }
 
-    fn upload(root: BackupRoot, mut b2: b2api::B2, config: Config,
-              rx_file: Receiver<Option<LocalFile>>, tx_progress: Sender<Progress>)
-                -> Result<(), Box<Error>> {
-        for file in rx_file {
+    async fn upload(root: BackupRoot, mut b2: b2::B2, config: Config,
+                    mut rx_file: Receiver<Option<LocalFile>>, mut tx_progress: Sender<Progress>)
+                    -> Result<(), Box<dyn Error + 'static>> {
+        while let Some(file) = await!(rx_file.next()) {
             if file.is_none() {
                 break;
             }
             let file = file.unwrap();
 
             let filename = file.path_str().into_owned();
-            tx_progress.send(Progress::Started(filename.clone()))?;
+            await!(tx_progress.send(Progress::Started(filename.clone())))?;
 
             let is_symlink = file.is_symlink(&root.path).unwrap_or(false);
-            let contents = if is_symlink {
-                file.readlink(&root.path)
-            } else {
-                file.read_all(&root.path)
+            let mut contents = {
+                let maybe_contents = if is_symlink {
+                    file.readlink(&root.path)
+                } else {
+                    file.read_all(&root.path)
+                }.map_err(|_| Progress::Error(format!("Failed to read file: {}", filename)));
+
+                match maybe_contents {
+                    Ok(contents) => contents,
+                    Err(err) => {
+                        await!(tx_progress.send(err))?;
+                        continue;
+                    }
+                }
             };
 
-            if contents.is_err() {
-                tx_progress.send(Progress::Error(format!("Failed to read file: {}", filename)))?;
-                continue;
-            }
-            let mut contents = contents.unwrap();
-
-            tx_progress.send(Progress::Compressing(0))?;
+            await!(tx_progress.send(Progress::Compressing(0)))?;
             let compressed = zstd::block::compress(contents.as_slice(), config.compression_level);
             contents.clear();
             contents.shrink_to_fit();
             if compressed.is_err() {
-                tx_progress.send(Progress::Error(
-                                    format!("Failed to compress file: {}", filename)))?;
+                await!(tx_progress.send(Progress::Error(
+                                    format!("Failed to compress file: {}", filename))))?;
                 continue;
             }
             let mut compressed = compressed.unwrap();
 
-            tx_progress.send(Progress::Encrypting(0))?;
+            await!(tx_progress.send(Progress::Encrypting(0)))?;
             let encrypted = crypto::encrypt(&compressed, &b2.key);
             compressed.clear();
             compressed.shrink_to_fit();
 
-            tx_progress.send(Progress::Uploading(0, encrypted.len() as u64))?;
+            await!(tx_progress.send(Progress::Uploading(0, encrypted.len() as u64)))?;
 
             let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
-            let mut progress_reader = ProgressDataReader::new(encrypted, Some(tx_progress.clone()));
+            let progress_reader = ProgressDataReader::new(encrypted, Some(tx_progress.clone()));
             let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified,
                                                file.mode, is_symlink);
-            let err = b2api::upload_file(&mut b2, &filehash, &mut progress_reader, Some(enc_meta));
-            if err.is_err() {
-                tx_progress.send(Progress::Error(
-                                format!("Failed to upload file \"{}\": {}", filename,
-                                                                err.err().unwrap())))?;
+
+            let err = await!(b2.upload_file(&filehash, progress_reader, Some(enc_meta))).map_err(|err| {
+                Progress::Error(format!("Failed to upload file \"{}\": {}", filename, err))
+            });
+            if let Err(err) = err {
+                await!(tx_progress.send(err))?;
                 continue;
             }
-            tx_progress.send(Progress::Transferred(file.path_str().into_owned()))?;
+            await!(tx_progress.send(Progress::Transferred(file.path_str().into_owned())))?;
         }
 
-        tx_progress.send(Progress::Terminated)?;
+        await!(tx_progress.send(Progress::Terminated))?;
         Ok(())
     }
 }

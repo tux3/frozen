@@ -1,14 +1,15 @@
 use std::error::Error;
-use std::thread;
-use std::time::Duration;
 use std::fs;
-use config::Config;
-use data::root;
-use net::b2api;
-use progress;
-use util;
+use std::time::Duration;
+use futures_timer::Delay;
+use tokio::await;
+use crate::config::Config;
+use crate::data::root;
+use crate::net::b2::B2;
+use crate::progress;
+use crate::util;
 
-pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), Box<Error>> {
+pub async fn restore<'a>(config: &'a Config, path: &'a str, target: Option<&'a str>) -> Result<(), Box<dyn Error + 'static>> {
     let mut path = path.to_string();
     let target = if target.is_none() {
         fs::create_dir_all(&path)?;
@@ -23,26 +24,26 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
     };
 
     println!("Connecting to Backblaze B2");
-    let b2 = &b2api::authenticate(config)?;
+    let b2 = await!(B2::authenticate(config))?;
 
     println!("Downloading backup metadata");
-    let mut roots = root::fetch_roots(b2);
+    let mut roots = await!(root::fetch_roots(&b2))?;
 
     let signal_flag = util::setup_signal_flag();
 
     println!("Opening backup folder {}", path);
-    let root = root::open_root(b2, &mut roots, &path)?;
+    let root = await!(root::open_root(&b2, &mut roots, &path))?;
 
     println!("Starting to list local files");
-    let (lfiles_rx, list_thread) = root.list_local_files_async_at(b2, target)?;
+    let (lfiles_rx, list_thread) = root.list_local_files_async_at(&b2, target)?;
     util::err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");
-    let mut rfiles = root.list_remote_files(b2)?;
+    let mut rfiles = await!(root.list_remote_files(&b2))?;
     util::err_on_signal(&signal_flag)?;
 
     println!("Starting download");
-    let mut download_threads = root.start_download_threads(b2, config, target);
+    let mut download_threads = root.start_download_threads(&b2, config, target);
 
     progress::start_output(download_threads.len());
 
@@ -56,17 +57,17 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
 
     for rfile in rfiles {
         'send: loop {
-            for thread in &download_threads {
+            for thread in &mut download_threads {
                 if thread.tx.try_send(Some(rfile.clone())).is_ok() {
                     break 'send;
                 }
             }
             util::err_on_signal(&signal_flag)?;
-            progress::handle_progress(&mut download_threads);
-            thread::sleep(Duration::from_millis(20));
+            await!(progress::handle_progress(&mut download_threads));
+            await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
         util::err_on_signal(&signal_flag)?;
-        progress::handle_progress(&mut download_threads);
+        await!(progress::handle_progress(&mut download_threads));
     }
 
     // Tell our threads to stop as they become idle
@@ -76,8 +77,8 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                progress::handle_progress(&mut download_threads);
-                thread::sleep(Duration::from_millis(20));
+                await!(progress::handle_progress(&mut download_threads));
+                await!(Delay::new(Duration::from_millis(20))).is_ok();
                 continue;
             }
         }
@@ -91,8 +92,8 @@ pub fn restore(config: &Config, path: &str, target: Option<&str>) -> Result<(), 
 
     while !download_threads.is_empty() {
         util::err_on_signal(&signal_flag)?;
-        progress::handle_progress(&mut download_threads);
-        thread::sleep(Duration::from_millis(20));
+        await!(progress::handle_progress(&mut download_threads));
+        await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
     list_thread.join().unwrap();
 

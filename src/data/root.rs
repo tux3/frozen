@@ -5,16 +5,17 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::thread;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use bincode::{serialize, deserialize, Infinite};
-use data_encoding::hex;
-use crypto;
-use data::file::{LocalFile, RemoteFile, RemoteFileVersion};
-use net::b2api;
-use net::upload::UploadThread;
-use net::download::DownloadThread;
-use net::delete::DeleteThread;
-use config::Config;
-use progress::ProgressDataReader;
+use bincode::{serialize, deserialize};
+use data_encoding::{HEXLOWER_PERMISSIVE};
+use serde::{Serialize, Deserialize};
+use crate::crypto;
+use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
+use crate::net::b2;
+use crate::net::upload::UploadThread;
+use crate::net::download::DownloadThread;
+use crate::net::delete::DeleteThread;
+use crate::config::Config;
+use crate::progress::ProgressDataReader;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BackupRoot {
@@ -22,7 +23,7 @@ pub struct BackupRoot {
     pub path_hash: String,
 
     #[serde(skip)]
-    lock: Option<(RemoteFileVersion, b2api::B2)>,
+    lock: Option<(RemoteFileVersion, b2::B2)>,
 }
 
 impl BackupRoot {
@@ -34,13 +35,13 @@ impl BackupRoot {
         }
     }
 
-    pub fn list_local_files_async(&self, b2: &b2api::B2)
+    pub fn list_local_files_async(&self, b2: &b2::B2)
             -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
         self.list_local_files_async_at(b2, &self.path)
     }
 
-    pub fn list_local_files_async_at(&self, b2: &b2api::B2, path: &str)
-                                  -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
+    pub fn list_local_files_async_at(&self, b2: &b2::B2, path: &str)
+                                     -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
         let (tx, rx) = channel();
         let key = b2.key.clone();
         let path = PathBuf::from(path);
@@ -54,37 +55,38 @@ impl BackupRoot {
         }
     }
 
-    pub fn list_remote_files(&self, b2: &b2api::B2) -> Result<Vec<RemoteFile>, Box<Error>> {
+    pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
         if self.lock.is_none() {
             return Err(From::from("Cannot list remote files, backup root isn't locked!"));
         }
 
-        let mut files = b2api::list_remote_files(b2, &(self.path_hash.clone()+"/"))?;
+        let path = self.path_hash.clone()+"/";
+        let mut files = await!(b2.list_remote_files(&path))?;
         files.sort();
         Ok(files)
     }
 
-    pub fn start_upload_threads(&self, b2: &b2api::B2, config: &Config) -> Vec<UploadThread> {
+    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config) -> Vec<UploadThread> {
         (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config)).collect()
     }
 
-    pub fn start_download_threads(&self, b2: &b2api::B2, config: &Config, target: &str) -> Vec<DownloadThread> {
+    pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &str) -> Vec<DownloadThread> {
         (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
     }
 
-    pub fn start_delete_threads(&self, b2: &b2api::B2, config: &Config) -> Vec<DeleteThread> {
+    pub fn start_delete_threads(&self, b2: &b2::B2, config: &Config) -> Vec<DeleteThread> {
         (0..config.delete_threads).map(|_| DeleteThread::new(self, b2)).collect()
     }
 
-    pub fn lock(&mut self, b2: &b2api::B2) -> Result<(), Box<Error>> {
-        let rand_str = hex::encode(&crypto::randombytes(4));
+    pub async fn lock<'a>(&'a mut self, b2: &'a b2::B2) -> Result<(), Box<dyn Error + 'static>> {
+        let rand_str = HEXLOWER_PERMISSIVE.encode(&crypto::randombytes(4));
         let lock_path_prefix = self.path_hash.to_owned()+".lock.";
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
         let mut lock_b2 = b2.clone();
 
-        let mut data_reader = ProgressDataReader::new(Vec::new(), None);
-        let lock_version = b2api::upload_file(&mut lock_b2, &lock_path, &mut data_reader, None)?;
-        let locks = b2api::list_remote_file_versions(&lock_b2, &lock_path_prefix);
+        let data_reader = ProgressDataReader::new(Vec::new(), None);
+        let lock_version = await!(lock_b2.upload_file(&lock_path, data_reader, None))?;
+        let locks = await!(lock_b2.list_remote_file_versions(&lock_path_prefix));
         self.lock = Some((lock_version, lock_b2));
 
         if locks.is_err() {
@@ -103,19 +105,30 @@ impl BackupRoot {
         Ok(())
     }
 
-    pub fn unlock(&mut self) -> Result<(), Box<Error>> {
+    pub async fn unlock(&mut self) -> Result<(), Box<dyn Error + 'static>> {
         if self.lock.is_none() {
             return Ok(());
         }
-        let (lock_version, lock_b2) = self.lock.take().unwrap();
-        b2api::delete_file_version(&lock_b2, &lock_version, None)?;
-        Ok(())
+        let (version, b2) = self.lock.take().unwrap();
+        await!(BackupRoot::unlock_impl(version, b2))
+    }
+
+    pub fn release_lock(&mut self) -> Option<(RemoteFileVersion, b2::B2)> {
+        self.lock.take()
+    }
+
+    async fn unlock_impl(version: RemoteFileVersion, b2: b2::B2) -> Result<(), Box<dyn Error + 'static>> {
+        await!(b2.delete_file_version(&version))
     }
 }
 
 impl Drop for BackupRoot {
     fn drop(&mut self) {
-        let _ = self.unlock();
+        if let Some((version, b2)) = self.release_lock() {
+            crate::futures_compat::tokio_spawn(async {
+                let _ = await!(BackupRoot::unlock_impl(version, b2));
+            });
+        }
     }
 }
 
@@ -143,63 +156,55 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
     Ok(())
 }
 
-pub fn fetch_roots(b2: &b2api::B2) -> Vec<BackupRoot> {
-    let mut roots = Vec::new();
-
-    let root_file_data = b2api::download_file(b2, "backup_root");
-    if root_file_data.is_ok() {
-        roots = deserialize(&root_file_data.unwrap()[..]).unwrap();
-    }
-
-    roots
+pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error + 'static>> {
+    let enc_data = await!(b2.download_file("backup_root"))?;
+    let data = crypto::decrypt(&enc_data, &b2.key)?;
+    Ok(deserialize(&data[..]).unwrap())
 }
 
-pub fn save_roots(b2: &mut b2api::B2, roots: & mut Vec<BackupRoot>) -> Result<(), Box<Error>> {
-    let data = serialize(roots, Infinite)?;
-    let mut data_reader = ProgressDataReader::new(data, None);
-    b2api::upload_file(b2, "backup_root", &mut data_reader, None)?;
+pub async fn save_roots<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot]) -> Result<(), Box<dyn Error + 'static>> {
+    let plain_data = serialize(roots)?;
+    let data = crypto::encrypt(&plain_data, &b2.key);
+    let data_reader = ProgressDataReader::new(data, None);
+    await!(b2.upload_file("backup_root", data_reader, None))?;
     Ok(())
 }
 
 /// Opens an existing backup root, or creates one if necessary
-pub fn open_create_root(b2: &mut b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
-    -> Result<BackupRoot, Box<Error>> {
-    {
-        let maybe_root = roots.into_iter().find(|r| r.path == *path);
-        if maybe_root.is_some() {
-            let mut root = maybe_root.unwrap().clone();
-            root.lock(b2)?;
-            return Ok(root);
-        }
+pub async fn open_create_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+                                  -> Result<BackupRoot, Box<dyn Error + 'static>> {
+    let mut root: BackupRoot;
+    if let Some(existing_root) = roots.iter_mut().find(|r| r.path == *path) {
+        root = existing_root.clone();
+    } else {
+        root = BackupRoot::new(path, &b2.key);
+        roots.push(root.clone());
+        await!(save_roots(b2, roots))?;
     }
 
-
-    let mut root = BackupRoot::new(path, &b2.key);
-    roots.push(root.clone());
-    save_roots(b2, roots)?;
-
-    root.lock(b2)?;
+    await!(root.lock(b2))?;
     Ok(root)
 }
 
-pub fn delete_root(b2: &mut b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
-    -> Result<(), Box<Error>> {
-    if roots.iter().position(|r| r.path == path).map(|i| roots.remove(i)).is_none() {
-        return Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path)))
+pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+                             -> Result<(), Box<dyn Error + 'static>> {
+    if roots.iter()
+        .position(|r| r.path == path)
+        .map(|i| roots.remove(i))
+        .is_none() {
+        Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path)))
+    } else {
+        await!(save_roots(b2, roots))
     }
-
-    save_roots(b2, roots)?;
-
-    Ok(())
 }
 
 /// Opens an existing backup root
-pub fn open_root(b2: &b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
-                        -> Result<BackupRoot, Box<Error>> {
-    match roots.into_iter().find(|r| r.path == *path) {
+pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+                           -> Result<BackupRoot, Box<dyn Error + 'static>> {
+    match roots.iter().find(|r| r.path == *path) {
         Some(root) => {
             let mut root = root.clone();
-            root.lock(b2)?;
+            await!(root.lock(b2))?;
             Ok(root)
         },
         None => Err(From::from(format!("Backup does not exist for \"{}\"", path))),
@@ -207,15 +212,15 @@ pub fn open_root(b2: &b2api::B2, roots: &mut Vec<BackupRoot>, path: &str)
 }
 
 /// Forcibly unlocks a backup root
-pub fn wipe_locks(b2: &mut b2api::B2, roots: &Vec<BackupRoot>, path: &str)
-                        -> Result<(), Box<Error>> {
-    if let Some(root) = roots.into_iter().find(|r| r.path == *path) {
+pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'a str)
+                            -> Result<(), Box<dyn Error + 'static>> {
+    if let Some(root) = roots.iter().find(|r| r.path == *path) {
         let lock_path_prefix = root.path_hash.to_owned() + ".lock.";
-        let locks = b2api::list_remote_file_versions(&b2, &lock_path_prefix)?;
+        let locks = await!(b2.list_remote_file_versions(&lock_path_prefix))?;
 
         println!("{} lock files to remove", locks.len());
         for lock_version in &locks {
-            b2api::delete_file_version(&b2, &lock_version, None)?;
+            await!(b2.delete_file_version(&lock_version))?;
         }
         Ok(())
     } else {
