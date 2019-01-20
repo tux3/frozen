@@ -21,8 +21,9 @@ impl progress_thread::ProgressThread for UploadThread {
 }
 
 impl UploadThread {
-    pub fn new(root: &BackupRoot, b2: &b2::B2, config: &Config) -> UploadThread {
+    pub fn new(root: &BackupRoot, b2: &b2::B2, config: &Config, source_path: &str) -> UploadThread {
         let root = root.clone();
+        let source_path = source_path.to_owned();
         let config = config.clone();
         let (tx_file, rx_file) = channel(1);
         let (tx_progress, rx_progress) = channel(16);
@@ -31,7 +32,7 @@ impl UploadThread {
         b2.tx_progress = Some(tx_progress.clone());
 
         crate::futures_compat::tokio_spawn(async {
-            let _ = await!(UploadThread::upload(root, b2, config, rx_file, tx_progress));
+            let _ = await!(UploadThread::upload(root, b2, config, source_path, rx_file, tx_progress));
         });
 
         UploadThread {
@@ -40,7 +41,7 @@ impl UploadThread {
         }
     }
 
-    async fn upload(root: BackupRoot, mut b2: b2::B2, config: Config,
+    async fn upload(root: BackupRoot, mut b2: b2::B2, config: Config, source_path: String,
                     mut rx_file: Receiver<Option<LocalFile>>, mut tx_progress: Sender<Progress>)
                     -> Result<(), Box<dyn Error + 'static>> {
         while let Some(file) = await!(rx_file.next()) {
@@ -52,12 +53,12 @@ impl UploadThread {
             let filename = file.path_str().into_owned();
             await!(tx_progress.send(Progress::Started(filename.clone())))?;
 
-            let is_symlink = file.is_symlink(&root.path).unwrap_or(false);
+            let is_symlink = file.is_symlink(&source_path).unwrap_or(false);
             let mut contents = {
                 let maybe_contents = if is_symlink {
-                    file.readlink(&root.path)
+                    file.readlink(&source_path)
                 } else {
-                    file.read_all(&root.path)
+                    file.read_all(&source_path)
                 }.map_err(|_| Progress::Error(format!("Failed to read file: {}", filename)));
 
                 match maybe_contents {

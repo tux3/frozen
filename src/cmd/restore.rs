@@ -30,7 +30,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     let root = await!(root::open_root(&b2, &mut roots, &path))?;
 
     println!("Starting to list local files");
-    let (lfiles_rx, list_thread) = root.list_local_files_async_at(&b2, target)?;
+    let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, target)?;
     util::err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");

@@ -35,12 +35,7 @@ impl BackupRoot {
         }
     }
 
-    pub fn list_local_files_async(&self, b2: &b2::B2)
-            -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
-        self.list_local_files_async_at(b2, &self.path)
-    }
-
-    pub fn list_local_files_async_at(&self, b2: &b2::B2, path: &str)
+    pub fn list_local_files_async(&self, b2: &b2::B2, path: &str)
                                      -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
         let (tx, rx) = channel();
         let key = b2.key.clone();
@@ -66,8 +61,8 @@ impl BackupRoot {
         Ok(files)
     }
 
-    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config) -> Vec<UploadThread> {
-        (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config)).collect()
+    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config, source_path: &str,) -> Vec<UploadThread> {
+        (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config, source_path)).collect()
     }
 
     pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &str) -> Vec<DownloadThread> {

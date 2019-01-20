@@ -14,10 +14,11 @@ use crate::progress;
 use crate::util;
 
 pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
+    let path = args.value_of("source").unwrap();
     if !Path::new(&path).is_dir() {
         return Err(From::from(format!("{} is not a folder!", &path)))
     }
+    let target = fs::canonicalize(args.value_of("destination").unwrap_or(&path))?.to_string_lossy().into_owned();
 
     println!("Connecting to Backblaze B2");
     let b2 = &mut await!(b2::B2::authenticate(config))?;
@@ -27,11 +28,11 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     let signal_flag = util::setup_signal_flag();
 
-    println!("Opening backup folder {}", path);
-    let root = await!(root::open_create_root(b2, &mut roots, &path))?;
+    println!("Opening backup folder {}", target);
+    let root = await!(root::open_create_root(b2, &mut roots, &target))?;
 
     println!("Starting to list local files");
-    let (lfiles_rx, list_thread) = root.list_local_files_async(b2)?;
+    let (lfiles_rx, list_thread) = root.list_local_files_async(b2, &path)?;
     util::err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");
@@ -39,7 +40,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     util::err_on_signal(&signal_flag)?;
 
     println!("Starting upload");
-    let mut upload_threads = root.start_upload_threads(b2, config);
+    let mut upload_threads = root.start_upload_threads(b2, config, path);
 
     progress::start_output(upload_threads.len());
 
