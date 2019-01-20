@@ -53,12 +53,12 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
                         break 'upload_send;
                     }
                 }
-                await!(progress::handle_progress(&mut upload_threads));
+                await!(progress::handle_progress(config.verbose, &mut upload_threads));
                 util::err_on_signal(&signal_flag)?;
                 await!(Delay::new(Duration::from_millis(20))).is_ok();
             }
             util::err_on_signal(&signal_flag)?;
-            await!(progress::handle_progress(&mut upload_threads));
+            await!(progress::handle_progress(config.verbose, &mut upload_threads));
         }
         if let Ok(rfile) = rfile {
             rfiles.remove(rfile);
@@ -72,7 +72,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
         if thread_id < upload_threads.len() {
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                await!(progress::handle_progress(&mut upload_threads));
+                await!(progress::handle_progress(config.verbose, &mut upload_threads));
                 await!(Delay::new(Duration::from_millis(20))).is_ok();
                 continue;
             }
@@ -87,7 +87,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     while !upload_threads.is_empty() {
         util::err_on_signal(&signal_flag)?;
-        await!(progress::handle_progress(&mut upload_threads));
+        await!(progress::handle_progress(config.verbose, &mut upload_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
     list_thread.join().unwrap();
@@ -114,11 +114,11 @@ async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
                 }
             }
             util::err_on_signal(&signal_flag)?;
-            await!(progress::handle_progress(&mut delete_threads));
+            await!(progress::handle_progress(config.verbose, &mut delete_threads));
             await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
         util::err_on_signal(&signal_flag)?;
-        await!(progress::handle_progress(&mut delete_threads));
+        await!(progress::handle_progress(config.verbose, &mut delete_threads));
     }
 
     // Tell our delete threads to stop as they become idle
@@ -128,7 +128,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
         if thread_id < delete_threads.len() {
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                await!(progress::handle_progress(&mut delete_threads));
+                await!(progress::handle_progress(config.verbose, &mut delete_threads));
                 await!(Delay::new(Duration::from_millis(20))).is_ok();
                 continue;
             }
@@ -143,7 +143,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
 
     while !delete_threads.is_empty() {
         util::err_on_signal(&signal_flag)?;
-        await!(progress::handle_progress(&mut delete_threads));
+        await!(progress::handle_progress(config.verbose, &mut delete_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
 

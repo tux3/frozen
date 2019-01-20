@@ -22,6 +22,10 @@ fn help_and_die(args: &ArgMatches) -> ! {
 fn main() {
     let args = App::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
+        .arg(Arg::with_name("verbose")
+            .short("v")
+            .long("verbose")
+            .help("Log every file transferred"))
         .subcommand(SubCommand::with_name("list")
             .about("List the currently backup up folders")
         )
@@ -64,7 +68,7 @@ fn main() {
         )
         .get_matches();
 
-    let config = config::get_or_create_config();
+    let config = config::get_or_create_config(args.is_present("verbose"));
 
     let mut return_code = 0;
     crate::futures_compat::tokio_run(async move {

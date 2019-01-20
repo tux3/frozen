@@ -24,6 +24,7 @@ pub struct Config {
     pub download_threads: u16,
     pub delete_threads: u16,
     pub compression_level: i32,
+    pub verbose: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -38,13 +39,15 @@ struct ConfigFile {
     pub compression_level: i32,
 }
 
-pub fn get_or_create_config() -> Config {
-    read_config().unwrap_or_else(|_| {
+pub fn get_or_create_config(verbose: bool) -> Config {
+    let mut config = read_config().unwrap_or_else(|_| {
         println!("No configuration found, creating it.");
         let config = create_config_interactive();
         save_config(&config).expect("Failed to save configuration!");
         config
-    })
+    });
+    config.verbose = verbose;
+    config
 }
 
 fn get_config_file_path() -> String {
@@ -85,6 +88,7 @@ fn read_config() -> Result<Config, Box<dyn Error>> {
         download_threads: config_file.download_threads,
         delete_threads: config_file.delete_threads,
         compression_level: config_file.compression_level,
+        verbose: false,
     })
 }
 
@@ -104,6 +108,7 @@ fn create_config_interactive() -> Config {
         download_threads: DOWNLOAD_THREADS_DEFAULT,
         delete_threads: DELETE_THREADS_DEFAULT,
         compression_level: COMPRESSION_LEVEL_DEFAULT,
+        verbose: false,
     }
 }
 

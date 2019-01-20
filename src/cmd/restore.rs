@@ -58,11 +58,11 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
                 }
             }
             util::err_on_signal(&signal_flag)?;
-            await!(progress::handle_progress(&mut download_threads));
+            await!(progress::handle_progress(config.verbose, &mut download_threads));
             await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
         util::err_on_signal(&signal_flag)?;
-        await!(progress::handle_progress(&mut download_threads));
+        await!(progress::handle_progress(config.verbose, &mut download_threads));
     }
 
     // Tell our threads to stop as they become idle
@@ -72,7 +72,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                await!(progress::handle_progress(&mut download_threads));
+                await!(progress::handle_progress(config.verbose, &mut download_threads));
                 await!(Delay::new(Duration::from_millis(20))).is_ok();
                 continue;
             }
@@ -87,7 +87,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
 
     while !download_threads.is_empty() {
         util::err_on_signal(&signal_flag)?;
-        await!(progress::handle_progress(&mut download_threads));
+        await!(progress::handle_progress(config.verbose, &mut download_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
     list_thread.join().unwrap();

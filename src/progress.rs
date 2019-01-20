@@ -110,7 +110,7 @@ pub fn start_output(num_threads: usize) {
 }
 
 /// This makes use of VT100, so don't mix with regular print functions
-pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize) {
+pub fn progress_output(verbose: bool, progress: &Progress, thread_id: usize, num_threads: usize) {
     use self::Progress::*;
 
     let off = thread_id+1;
@@ -131,13 +131,17 @@ pub fn progress_output(progress: &Progress, thread_id: usize, num_threads: usize
             rewrite_at(off, VT100::StyleActive,               "Done               ");
             insert_at(num_threads, VT100::StyleError, &format!("Error: {}", str));
         },
-        Transferred(_str) => {
+        Transferred(str) => {
             rewrite_at(off, VT100::StyleActive,               "Done               ");
-            //insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
+            if verbose {
+                insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
+            }
         },
-        Deleted(_str) => {
+        Deleted(str) => {
             rewrite_at(off, VT100::StyleActive,               "Done               ");
-            //insert_at(num_threads, VT100::StyleReset, &format!("Deleted     \t\t\t{}", str));
+            if verbose {
+                insert_at(num_threads, VT100::StyleReset, &format!("Deleted     \t\t\t{}", str));
+            }
         },
         Terminated => {
             remove_at(off);
@@ -150,7 +154,7 @@ pub fn flush() {
 }
 
 /// Receives and displays progress information. Removes dead threads from the list.
-pub async fn handle_progress<T: progress_thread::ProgressThread>(threads: &mut Vec<T>) {
+pub async fn handle_progress<T: progress_thread::ProgressThread>(verbose: bool, threads: &mut Vec<T>) {
     let mut num_threads = threads.len();
     let mut thread_id = 0;
     while thread_id < num_threads {
@@ -167,7 +171,7 @@ pub async fn handle_progress<T: progress_thread::ProgressThread>(threads: &mut V
                 if let Progress::Terminated = progress {
                     delete_later = true;
                 }
-                progress_output(&progress, thread_id, num_threads)
+                progress_output(verbose, &progress, thread_id, num_threads)
             }
         }
         if delete_later {
