@@ -92,9 +92,10 @@ impl DownloadThread {
                     format!("Failed to create path to file \"{}\"", file.rel_path)))?;
                 continue;
             }
+
+            fs::remove_file(&save_path).ok();
             if file.is_symlink {
                 let link_target = String::from_utf8(contents).unwrap();
-                fs::remove_file(&save_path).ok();
                 if symlink(link_target, save_path).is_err() {
                     tx_progress.send(Progress::Error(
                         format!("Failed to create symlink \"{}\"", file.rel_path)))?;
