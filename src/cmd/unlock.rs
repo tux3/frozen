@@ -1,13 +1,14 @@
 use std::error::Error;
 use std::path::Path;
 use std::fs;
+use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::root;
 use crate::net::b2::B2;
 use crate::util::prompt_yes_no;
 
-pub async fn unlock<'a>(config: &'a Config, path: &'a str) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
+pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
     if !Path::new(&path).is_dir() {
         return Err(From::from(format!("{} is not a folder!", &path)))
     }

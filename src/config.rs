@@ -38,12 +38,21 @@ struct ConfigFile {
     pub compression_level: i32,
 }
 
+pub fn get_or_create_config() -> Config {
+    read_config().unwrap_or_else(|_| {
+        println!("No configuration found, creating it.");
+        let config = create_config_interactive();
+        save_config(&config).expect("Failed to save configuration!");
+        config
+    })
+}
+
 fn get_config_file_path() -> String {
     let home = env::var("HOME").unwrap();
     home+"/"+CONFIG_FILE_RELPATH
 }
 
-pub fn read_config() -> Result<Config, Box<Error>> {
+fn read_config() -> Result<Config, Box<dyn Error>> {
     let mut file : File = File::open(get_config_file_path())?;
     let contents = &mut String::new();
     file.read_to_string(contents)?;
@@ -79,7 +88,7 @@ pub fn read_config() -> Result<Config, Box<Error>> {
     })
 }
 
-pub fn create_config_interactive() -> Config {
+fn create_config_interactive() -> Config {
     let acc_id = prompt("Enter your account ID");
     let app_key_id = prompt("Enter you application key ID");
     let app_key = prompt("Enter you application key");
@@ -98,7 +107,7 @@ pub fn create_config_interactive() -> Config {
     }
 }
 
-pub fn save_config(config : &Config) -> Result<(), Box<Error>> {
+fn save_config(config : &Config) -> Result<(), Box<Error>> {
     let mut file = File::create(get_config_file_path())?;
     let config_file = ConfigFile{
         acc_id: config.acc_id.clone(),

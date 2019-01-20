@@ -1,6 +1,6 @@
 #![feature(await_macro, async_await, futures_api)]
 
-use std::env;
+use clap::{Arg, App, SubCommand, ArgMatches};
 use std::process::exit;
 use tokio::await;
 
@@ -14,41 +14,64 @@ mod progress;
 mod vt100;
 mod futures_compat;
 
-fn help_and_die(selfname: &str) -> ! {
-    println!("Usage: {} command [arguments]", selfname);
+fn help_and_die(args: &ArgMatches) -> ! {
+    println!("{}", args.usage());
     exit(1);
 }
 
 fn main() {
-    let config = config::read_config().unwrap_or_else(|_| {
-        println!("No configuration found, creating it.");
-        let config = config::create_config_interactive();
-        config::save_config(&config).expect("Failed to save configuration!");
-        config
-    });
+    let args = App::new("Frozen Backup")
+        .about("Encrypted and compressed backups to Backblaze B2")
+        .subcommand(SubCommand::with_name("list")
+            .about("List the currently backup up folders")
+        )
+        .subcommand(SubCommand::with_name("backup")
+            .about("Backup a folder, encrypted and compressed, to the cloud")
+            .arg(Arg::with_name("source")
+                .help("The source folder to backup")
+                .required(true)
+                .index(1))
+        )
+        .subcommand(SubCommand::with_name("restore")
+            .about("Restore a backed up folder")
+            .arg(Arg::with_name("source")
+                .help("The backed up folder to restore")
+                .required(true)
+                .index(1))
+            .arg(Arg::with_name("destination")
+                .help("Path to save the downloaded folder")
+                .index(2))
+        )
+        .subcommand(SubCommand::with_name("delete")
+            .about("Delete a backed up folder")
+            .arg(Arg::with_name("target")
+                .help("The backed up folder to delete")
+                .required(true)
+                .index(1))
+        )
+        .subcommand(SubCommand::with_name("unlock")
+            .about("Force unlocking a folder after an interrupted backup. Dangerous.")
+            .arg(Arg::with_name("target")
+                .help("The backed up folder to forcibly unlock")
+                .required(true)
+                .index(1))
+        )
+        .get_matches();
 
-    let args: Vec<_> = env::args().collect();
-    if args.len() <= 1 {
-        help_and_die(&args[0]);
-    }
+    let config = config::get_or_create_config();
 
     let mut return_code = 0;
     crate::futures_compat::tokio_run(async move {
-        let target_path = if args.len() > 3 {
-            Some(args[3].as_str())
-        } else {
-            None
-        };
-
-        match args[1].as_ref() {
-        "backup" => await!(cmd::backup(&config, &args[2])),
-        "restore" => await!(cmd::restore(&config, &args[2], target_path)),
-        "delete" => await!(cmd::delete(&config, &args[2])),
-        "unlock" => await!(cmd::unlock(&config, &args[2])),
-        "list" => await!(cmd::list(&config)),
-        _ => help_and_die(&args[0]),
+        match args.subcommand() {
+            ("backup", Some(sub_args)) => await!(cmd::backup(&config, sub_args)),
+            ("restore", Some(sub_args)) => await!(cmd::restore(&config, sub_args)),
+            ("delete", Some(sub_args)) => await!(cmd::delete(&config, sub_args)),
+            ("unlock", Some(sub_args)) => await!(cmd::unlock(&config, sub_args)),
+            ("list", Some(sub_args)) => await!(cmd::list(&config, sub_args)),
+            _ => help_and_die(&args),
         }.unwrap_or_else(|err| {
-            println!("\r{} failed: {}", args[1], err);
+            println!("\r{} failed: {}", args.subcommand_name().unwrap(), err);
+            // Note that we can't exit here, we must let any pending spawned futures finish first.
             return_code = 1;
         });
     });

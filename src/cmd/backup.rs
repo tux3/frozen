@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
+use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
@@ -10,8 +11,8 @@ use crate::net::b2;
 use crate::progress;
 use crate::util;
 
-pub async fn backup<'a>(config: &'a Config, path: &'a str) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
+pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
     if !Path::new(&path).is_dir() {
         return Err(From::from(format!("{} is not a folder!", &path)))
     }

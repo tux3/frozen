@@ -3,6 +3,7 @@ use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
+use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
@@ -11,8 +12,8 @@ use crate::net::b2::B2;
 use crate::progress;
 use crate::util;
 
-pub async fn delete<'a>(config: &'a Config, path: &'a str) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(path)?.to_string_lossy().into_owned();
+pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
 
     println!("Connecting to Backblaze B2");
     let mut b2 = await!(B2::authenticate(config))?;

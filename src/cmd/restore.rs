@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fs;
 use std::time::Duration;
+use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
@@ -9,19 +10,13 @@ use crate::net::b2::B2;
 use crate::progress;
 use crate::util;
 
-pub async fn restore<'a>(config: &'a Config, path: &'a str, target: Option<&'a str>) -> Result<(), Box<dyn Error + 'static>> {
-    let mut path = path.to_string();
-    let target = if target.is_none() {
-        fs::create_dir_all(&path)?;
-        path = fs::canonicalize(&path)?.to_string_lossy().into_owned();
-        &path
-    } else {
-        fs::create_dir_all(target.unwrap())?;
-        if let Ok(canon_path) = fs::canonicalize(&path) {
-            path = canon_path.to_string_lossy().into_owned();
-        }
-        target.unwrap()
-    };
+pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+    let mut path = args.value_of("source").unwrap().to_string();
+    if let Ok(canon_path) = fs::canonicalize(&path) {
+        path = canon_path.to_string_lossy().into_owned();
+    }
+    let target = args.value_of("destination").unwrap_or(&path);
+    fs::create_dir_all(target)?;
 
     println!("Connecting to Backblaze B2");
     let b2 = await!(B2::authenticate(config))?;

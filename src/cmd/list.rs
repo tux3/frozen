@@ -1,9 +1,10 @@
 use std::error::Error;
+use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::root;
 use crate::net::b2::B2;
 
-pub async fn list(config: &Config) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
     println!("Connecting to Backblaze B2");
     let b2 = await!(B2::authenticate(config))?;
 
