@@ -41,6 +41,44 @@ impl DownloadThread {
         }
     }
 
+    async fn save_file<'a>(file: &'a RemoteFile, contents: Vec<u8>,
+                           target: &'a str, tx_progress: &'a mut Sender<Progress>)
+                            -> Result<(), Box<dyn Error + 'static>> {
+        let save_path = target.to_owned()+"/"+&file.rel_path;
+        if fs::create_dir_all(Path::new(&save_path).parent().unwrap()).is_err() {
+            await!(tx_progress.send(Progress::Error(
+                format!("Failed to create path to file \"{}\"", file.rel_path))))?;
+            return Err(From::from("Failed to save file"));
+        }
+        fs::remove_file(&save_path).ok();
+        if file.is_symlink {
+            let link_target = String::from_utf8(contents).unwrap();
+            if symlink(link_target, save_path).is_err() {
+                await!(tx_progress.send(Progress::Error(
+                    format!("Failed to create symlink \"{}\"", file.rel_path))))?;
+                return Err(From::from("Failed to save file"));
+            }
+        } else {
+            let mut options = OpenOptions::new();
+            options.mode(file.mode);
+            let mut fd = match options.write(true).create(true).truncate(true)
+                .open(save_path) {
+                Ok(x) => x,
+                Err(_) => {
+                    await!(tx_progress.send(Progress::Error(
+                        format!("Failed to open file \"{}\"", file.rel_path))))?;
+                    return Err(From::from("Failed to save file"));
+                },
+            };
+            if fd.write_all(contents.as_ref()).is_err() {
+                await!(tx_progress.send(Progress::Error(
+                    format!("Failed to write file \"{}\"", file.rel_path))))?;
+                return Err(From::from("Failed to save file"));
+            }
+        }
+        Ok(())
+    }
+
     async fn download(root: BackupRoot, b2: b2::B2, target: String,
                       mut rx_file: Receiver<Option<RemoteFile>>, mut tx_progress: Sender<Progress>)
                       -> Result<(), Box<dyn Error + 'static>> {
@@ -83,39 +121,7 @@ impl DownloadThread {
             }
             let contents = contents.unwrap();
 
-            let save_path = target.to_owned()+"/"+&file.rel_path;
-            if fs::create_dir_all(Path::new(&save_path).parent().unwrap()).is_err() {
-                await!(tx_progress.send(Progress::Error(
-                    format!("Failed to create path to file \"{}\"", file.rel_path))))?;
-                continue;
-            }
-            fs::remove_file(&save_path).ok();
-            if file.is_symlink {
-                let link_target = String::from_utf8(contents).unwrap();
-                if symlink(link_target, save_path).is_err() {
-                    await!(tx_progress.send(Progress::Error(
-                        format!("Failed to create symlink \"{}\"", file.rel_path))))?;
-                    continue;
-                }
-            } else {
-                let mut options = OpenOptions::new();
-                options.mode(file.mode);
-                let mut fd = match options.write(true).create(true).truncate(true)
-                                    .open(save_path) {
-                    Ok(x) => x,
-                    Err(_) => {
-                        await!(tx_progress.send(Progress::Error(
-                            format!("Failed to open file \"{}\"", file.rel_path))))?;
-                        continue;
-                    },
-                };
-                if fd.write_all(contents.as_ref()).is_err() {
-                    await!(tx_progress.send(Progress::Error(
-                        format!("Failed to write file \"{}\"", file.rel_path))))?;
-                    continue;
-                }
-            }
-
+            await!(Self::save_file(&file, contents, &target, &mut tx_progress))?;
             await!(tx_progress.send(Progress::Transferred(file.rel_path.clone())))?;
         }
 
