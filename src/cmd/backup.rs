@@ -2,11 +2,13 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
+use std::sync::{Arc, atomic::AtomicBool};
 use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
-use crate::data::root;
+use crate::data::root::{self, BackupRoot};
+use crate::data::file::RemoteFile;
 use crate::net::b2;
 use crate::progress;
 use crate::util;
@@ -89,7 +91,17 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     }
     list_thread.join().unwrap();
 
-    // Delete remote files that were removed locally
+    if !args.is_present("keep-existing") {
+        await!(delete_dead_remote_files(config, b2, root, rfiles, signal_flag))?;
+    }
+
+    Ok(())
+}
+
+/// Delete remote files that were removed locally
+async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
+                                      root: BackupRoot, rfiles: Vec<RemoteFile>,
+                                      signal_flag: Arc<AtomicBool>) -> Result<(), Box<dyn Error + 'static>> {
     let mut delete_threads = root.start_delete_threads(b2, config);
     progress::start_output(delete_threads.len());
 
