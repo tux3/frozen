@@ -13,6 +13,7 @@ mod futures_compat;
 mod signal;
 mod crypto;
 mod data;
+mod dirdb;
 
 fn help_and_die(args: &ArgMatches) -> ! {
     println!("{}", args.usage());

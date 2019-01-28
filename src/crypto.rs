@@ -69,6 +69,13 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
     }
 }
 
+pub fn raw_hash(data: &[u8], output_size: usize, output: &mut [u8]) -> Result<(), Box<dyn Error>> {
+    let mut hasher = VarBlake2b::new(output_size)?;
+    hasher.input(data);
+    hasher.variable_result(|result| output.copy_from_slice(result));
+    Ok(())
+}
+
 pub fn hash_path(secret_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, 20);
