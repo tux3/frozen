@@ -54,3 +54,44 @@ impl DirStat {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+    use std::path::Path;
+    use self::super::DirStat;
+
+    #[test]
+    fn count_subfolders() -> Result<(), Box<dyn Error>> {
+        let stat = DirStat::new(Path::new("test_data/Folder A/ac"))?;
+        assert_eq!(stat.subfolders.len(), 1);
+        assert_eq!(stat.total_files_count, 2);
+        let stat = &stat.subfolders[0]; // ac/aca/
+        assert_eq!(stat.subfolders.len(), 1);
+        assert_eq!(stat.total_files_count, 1);
+        let stat = &stat.subfolders[0]; // ac/aca/acaa/
+        assert_eq!(stat.subfolders.len(), 0);
+        assert_eq!(stat.total_files_count, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn count_hidden_files() -> Result<(), Box<dyn Error>> {
+        // There's two regular files and a file starting with a '.'
+        assert_eq!(DirStat::new(Path::new("test_data/Folder B/"))?.total_files_count, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_empty_folders() -> Result<(), Box<dyn Error>> {
+        // Subfolders aa/ and ac/ contain files, but ab/ is empty (and kept in Git as a submodule!)
+        assert_eq!(DirStat::new(Path::new("test_data/Folder A"))?.subfolders.len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn count_total_files() -> Result<(), Box<dyn Error>> {
+        assert_eq!(DirStat::new(Path::new("test_data/"))?.total_files_count, 8);
+        Ok(())
+    }
+}
