@@ -1,4 +1,5 @@
 pub mod dirstat;
+pub mod pack;
 
 use self::dirstat::DirStat;
 use std::error::Error;

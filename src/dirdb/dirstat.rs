@@ -5,13 +5,16 @@ use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
 use bincode::serialize;
 
+#[derive(Default, Debug)]
 pub struct DirStat {
     /// This is the total number of files in the tree under this directory
     pub total_files_count: u64,
     /// The immediate subfolders of this directory
     pub subfolders: Vec<DirStat>,
-    /// The hash of the folder path, relative to the backup root
-    pub dir_path_hash: [u8; 8],
+    /// This directory's clear name
+    pub dir_name: Option<Vec<u8>>,
+    /// The hash of the folder name
+    pub dir_name_hash: [u8; 8],
     /// Hash of the content's metadata, changes if any file in this folder's tree changes
     pub content_hash: [u8; 8],
 }
@@ -42,16 +45,26 @@ impl DirStat {
                 hasher.input(&meta.len().to_le_bytes());
             }
         }
-        
+
+        let dir_name = serialize(dir_path.file_name().unwrap())?;
         let mut result = Self {
             total_files_count,
             subfolders,
-            dir_path_hash: [0; 8],
-            content_hash: [0; 8],
+            dir_name: Some(dir_name.clone()),
+            ..Default::default()
         };
-        crate::crypto::raw_hash(&serialize(dir_path)?, 8, &mut result.dir_path_hash)?;
+        crate::crypto::raw_hash(&dir_name, 8, &mut result.dir_name_hash)?;
         hasher.variable_result(|hash| result.content_hash.copy_from_slice(hash));
         Ok(result)
+    }
+}
+
+impl PartialEq for DirStat {
+    fn eq(&self, other: &Self) -> bool {
+        self.total_files_count == other.total_files_count
+        && self.subfolders == other.subfolders
+        && self.dir_name_hash == other.dir_name_hash
+        && self.content_hash == other.content_hash
     }
 }
 
