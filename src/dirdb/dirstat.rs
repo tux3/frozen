@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::cell::RefCell;
 use std::path::Path;
 use std::time::SystemTime;
 use blake2::VarBlake2b;
@@ -12,7 +13,7 @@ pub struct DirStat {
     /// The immediate subfolders of this directory
     pub subfolders: Vec<DirStat>,
     /// This directory's clear name
-    pub dir_name: Option<Vec<u8>>,
+    pub dir_name: RefCell<Option<Vec<u8>>>,
     /// The hash of the folder name
     pub dir_name_hash: [u8; 8],
     /// Hash of the content's metadata, changes if any file in this folder's tree changes
@@ -50,7 +51,7 @@ impl DirStat {
         let mut result = Self {
             total_files_count,
             subfolders,
-            dir_name: Some(dir_name.clone()),
+            dir_name: RefCell::new(Some(dir_name.clone())),
             ..Default::default()
         };
         crate::crypto::raw_hash(&dir_name, 8, &mut result.dir_name_hash)?;

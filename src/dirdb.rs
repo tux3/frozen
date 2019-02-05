@@ -1,5 +1,6 @@
 pub mod dirstat;
 pub mod pack;
+mod bitstream;
 
 use self::dirstat::DirStat;
 use std::error::Error;

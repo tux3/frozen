@@ -1,11 +1,22 @@
+use crate::dirdb::bitstream::*;
 use crate::dirdb::DirStat;
 use std::error::Error;
 use std::io::{Read, Write};
 use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
 
-pub struct PackingInfo {
+///! Very dense custom bitstream format for DirStat objects
+///! We need a dense format because DirStats are uploaded in full after every change,
+///! and need to be downloaded before we can start diffing folders.
+
+struct PackingInfo {
     need_folder_full_path: bool,
+}
+
+struct EncodingSettings {
+    file_counts: Encoding,
+    subdirs_counts: Encoding,
+    dirname_counts: Encoding,
 }
 
 fn rebuild_content_hash_from_subfolders(stat: &mut DirStat) -> Result<(), Box<dyn Error>> {
@@ -17,11 +28,92 @@ fn rebuild_content_hash_from_subfolders(stat: &mut DirStat) -> Result<(), Box<dy
     Ok(())
 }
 
+fn best_buckets_encoding(buckets: &[usize]) -> Encoding {
+    let max_encoding_bits = 2usize.pow(ENCODING_BITS_BITS as u32) - 1;
+
+    let mut use_varint = true;
+    let mut best_elem_bits = 8;
+    let mut best_total_bits = std::usize::MAX;
+
+    let largest_bucket = buckets.iter().rposition(|&n| n != 0).unwrap();
+    if largest_bucket < max_encoding_bits {
+        use_varint = false;
+        best_elem_bits = largest_bucket;
+        best_total_bits = buckets.iter().sum::<usize>() * largest_bucket;
+    }
+
+    for varint_bits in 2..=max_encoding_bits {
+        let total_varint_bits = buckets.iter().enumerate().fold(0usize, |acc, (val_bits, val_count)| {
+            let vals_encoded_bits = if val_bits == 0 {
+                varint_bits * val_count
+            } else {
+                let blocks_per_val = val_bits / (varint_bits-1) + (val_bits % (varint_bits-1) != 0) as usize;
+                varint_bits * blocks_per_val * val_count
+            };
+            acc + vals_encoded_bits
+        });
+
+        if total_varint_bits <= best_total_bits {
+            best_elem_bits = varint_bits;
+            best_total_bits = total_varint_bits;
+            use_varint = true;
+        }
+    }
+
+    Encoding {
+        use_varint,
+        bits: best_elem_bits,
+        encoded_data_size: best_total_bits + ENCODING_SIGNALING_OVERHEAD,
+    }
+}
+
+/// Counts the raw bits required to represent each number, without the 1 bit varint overhead
+fn count_bits_required_buckets<F>(stat: &DirStat, buckets: &mut [usize], get_stat_num: &F)
+    where F: Fn(&DirStat) -> u64 {
+    let num = get_stat_num(stat);
+    let bits = f64::log2((num+1) as f64).ceil() as usize;
+    buckets[bits] += 1;
+
+    for subfolder in stat.subfolders.iter() {
+        count_bits_required_buckets(&subfolder, buckets, get_stat_num);
+    }
+}
+
+fn best_encoding<F>(stat: &DirStat, get_stat_num: &F) -> Encoding
+    where F: Fn(&DirStat) -> u64 {
+    let mut buckets = [0usize; 40];
+    count_bits_required_buckets(stat, &mut buckets, get_stat_num);
+    best_buckets_encoding(&buckets)
+}
+
+/// Tries to find the best varint sizes to use in the bitstream
+/// The index of the last nonzero number in buckets is the raw bits required for the largest number
+/// If most numbers are in a smaller bucket, a varint of this smaller size will be more efficient
+fn best_encoding_settings(stat: &DirStat) -> EncodingSettings {
+    EncodingSettings {
+        subdirs_counts: best_encoding(stat, &|stat| stat.subfolders.len() as u64),
+        file_counts: best_encoding(stat, &|stat| {
+            stat.total_files_count - stat.subfolders.iter().fold(0, |sum, e|
+                sum + e.total_files_count
+            )
+        }),
+        dirname_counts: best_encoding(stat, &|stat| {
+            match stat.dir_name.borrow().as_ref() {
+                Some(name) => name.len() as u64,
+                None => 0,
+            }
+        }),
+    }
+}
+
 impl DirStat {
-    /// Load directory stats from a buffer produced by `serialize_into`
-    pub fn new_from_bytes(reader: &mut &[u8]) -> Result<Self, Box<dyn Error>> {
-        let subfolders_count = leb128::read::unsigned(reader)?;
-        let direct_files_count = leb128::read::unsigned(reader)?;
+    fn subdirs_from_bytes(reader: &mut &[u8],
+                          files_count_stream: &mut BitstreamReader,
+                          subdirs_count_stream: &mut BitstreamReader,
+                          dirname_count_stream: &mut BitstreamReader) -> Result<Self, Box<dyn Error>> {
+        let direct_files_count = files_count_stream.read();
+        let subfolders_count = subdirs_count_stream.read();
+        let dir_name_len = dirname_count_stream.read();
         let mut stat = Self {
             subfolders: Vec::with_capacity(subfolders_count as usize),
             ..Default::default()
@@ -29,20 +121,22 @@ impl DirStat {
 
         let mut total_files_count = direct_files_count;
         for _ in 0..subfolders_count {
-            let subdir = Self::new_from_bytes(reader)?;
+            let subdir = Self::subdirs_from_bytes(reader,
+                                                  files_count_stream,
+                                                  subdirs_count_stream,
+                                                  dirname_count_stream)?;
             total_files_count += subdir.total_files_count;
             stat.subfolders.push(subdir);
         }
         stat.total_files_count = total_files_count;
 
-        let dir_name_len = leb128::read::unsigned(reader)?;
         if dir_name_len == 0 {
             reader.read_exact(&mut stat.dir_name_hash)?;
         } else {
             let mut dir_name = vec![0u8; dir_name_len as usize];
             reader.read_exact(dir_name.as_mut())?;
             crate::crypto::raw_hash(&dir_name, 8, &mut stat.dir_name_hash)?;
-            stat.dir_name = Some(dir_name);
+            stat.dir_name.replace(Some(dir_name));
         }
 
         if direct_files_count > 0 {
@@ -54,19 +148,50 @@ impl DirStat {
         Ok(stat)
     }
 
-    /// Serialized the directory stats into a writer.
-    /// On error partial data may have been written.
-    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> Result<PackingInfo, Box<dyn Error>> {
+    /// Load directory stats from a buffer produced by `serialize_into`
+    pub fn new_from_bytes(reader: &mut &[u8]) -> Result<Self, Box<dyn Error>> {
+        let mut files_count_stream =  BitstreamReader::new(reader);
+        let mut subdirs_count_stream =  BitstreamReader::new(files_count_stream.slice_after());
+        let mut dirname_count_stream =  BitstreamReader::new(subdirs_count_stream.slice_after());
+        let subdirs_reader = dirname_count_stream.slice_after();
+
+        Self::subdirs_from_bytes(&mut &subdirs_reader[..],
+                                 &mut files_count_stream,
+                                 &mut subdirs_count_stream,
+                                 &mut dirname_count_stream)
+    }
+
+    fn serialize_subdirs<W: Write>(&self, writer: &mut W) -> Result<(), Box<dyn Error>> {
         let direct_files_count = self.total_files_count - self.subfolders.iter().fold(0, |sum, e|
             sum + e.total_files_count
         );
 
-        leb128::write::unsigned(writer, self.subfolders.len() as u64)?;
-        leb128::write::unsigned(writer, direct_files_count)?;
+        for subfolder in self.subfolders.iter() {
+            subfolder.serialize_subdirs(writer)?;
+        }
+
+        if let Some(dir_name) = self.dir_name.borrow().as_ref() {
+            writer.write_all(&dir_name)?;
+        } else {
+            writer.write_all(&self.dir_name_hash)?;
+        }
+
+        if direct_files_count > 0 {
+            writer.write_all(&self.content_hash)?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove subdir names that are too long or unnecessary
+    fn prune_subdir_names(&self) -> Result<PackingInfo, Box<dyn Error>> {
+        let direct_files_count = self.total_files_count - self.subfolders.iter().fold(0, |sum, e|
+            sum + e.total_files_count
+        );
 
         let mut need_folder_full_path = direct_files_count == 0;
         for subfolder in self.subfolders.iter() {
-            let sub_pack_info = subfolder.serialize_into(writer)?;
+            let sub_pack_info = subfolder.prune_subdir_names()?;
             need_folder_full_path |= sub_pack_info.need_folder_full_path;
         }
         if self.total_files_count > 0 {
@@ -75,33 +200,61 @@ impl DirStat {
         }
 
         // We store the name instead of the hash if it's shorter, or if we genuinely need it
-        let maybe_write_dir_name = if need_folder_full_path {
-            Some(self.dir_name.as_ref().expect("Cannot serialize DirStat without dir names"))
-        } else if let Some(dir_name) = &self.dir_name {
-            if dir_name.len() < 10 {
-                Some(dir_name)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some(dir_name) = maybe_write_dir_name {
-            leb128::write::unsigned(writer, dir_name.len() as u64)?;
-            writer.write_all(&dir_name)?;
-        } else {
-            leb128::write::unsigned(writer, 0)?;
-            writer.write_all(&self.dir_name_hash)?;
-        }
-
-        if direct_files_count > 0 {
-            writer.write_all(&self.content_hash)?;
+        let mut dir_name = self.dir_name.borrow_mut();
+        if need_folder_full_path {
+            dir_name.as_ref().expect("Cannot serialize DirStat without dir names");
+        } else if dir_name.is_some() && dir_name.as_ref().unwrap().len() > 8 {
+            *dir_name = None;
         }
 
         Ok(PackingInfo {
             need_folder_full_path,
         })
+    }
+
+    fn serialize_numeric_bitstream<F, W>(&self, bitstream_writer: &mut BitstreamWriter<W>, get_number: &F) -> Result<(), Box<dyn Error>>
+        where F: Fn(&DirStat) -> u64, W: Write {
+        bitstream_writer.write(get_number(self))?;
+
+        for subfolder in self.subfolders.iter() {
+            subfolder.serialize_numeric_bitstream(bitstream_writer, get_number)?;
+        }
+
+        Ok(())
+    }
+
+    /// Serialized the directory stats into a writer.
+    /// On error partial data may have been written.
+    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> Result<(), Box<dyn Error>> {
+        self.prune_subdir_names()?;
+        let encoding_settings = best_encoding_settings(&self);
+
+        {
+            let mut file_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.file_counts);
+            self.serialize_numeric_bitstream(&mut file_count_bitstream_writer, &|stat| {
+                stat.total_files_count - stat.subfolders.iter().fold(0, |sum, e|
+                    sum + e.total_files_count
+                )
+            })?;
+        }
+
+        {
+            let mut folder_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.subdirs_counts);
+            self.serialize_numeric_bitstream(&mut folder_count_bitstream_writer, &|stat| stat.subfolders.len() as u64)?;
+        }
+
+        {
+            let mut dirname_len_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.dirname_counts);
+            self.serialize_numeric_bitstream(&mut dirname_len_bitstream_writer, &|stat| {
+                match stat.dir_name.borrow().as_ref() {
+                    Some(name) => name.len() as u64,
+                    None => 0,
+                }
+            })?;
+        }
+
+        self.serialize_subdirs(writer)?;
+        Ok(())
     }
 }
 
@@ -113,7 +266,7 @@ mod tests {
 
     #[test]
     fn serialize_roundtrip() -> Result<(), Box<dyn Error>> {
-        let stat = DirStat::new(Path::new("test_data/"))?;
+        let stat = DirStat::new(Path::new("test_data"))?;
         let mut serialized = Vec::new();
         stat.serialize_into(&mut serialized)?;
 
@@ -123,36 +276,6 @@ mod tests {
         let mut reserialized = Vec::new();
         unserialized.serialize_into(&mut reserialized)?;
         assert_eq!(serialized, reserialized);
-        Ok(())
-    }
-
-    #[test]
-    fn serialized_size_is_minimal() -> Result<(), Box<dyn Error>> {
-        let stat = DirStat {
-            total_files_count: u32::max_value() as u64,
-            content_hash: [0xAA; 8],
-            dir_name: None,
-            dir_name_hash: [0xBB; 8],
-            subfolders: vec![DirStat{
-                total_files_count: 127,
-                content_hash: [0xCC; 8],
-                dir_name: None,
-                dir_name_hash: [0xDD; 8],
-                subfolders: Vec::new(),
-            }]
-        };
-
-        // File count (127) fits in 1 byte, 1+16 bytes of hash, and 1 byte to count the 0 subfolders
-        let subfolder_expected_len = 1 + 1 + 8 + 8 + 1;
-        let mut subfolder_serialized = Vec::new();
-        stat.subfolders[0].serialize_into(&mut subfolder_serialized)?;
-        assert_eq!(subfolder_serialized.len(), subfolder_expected_len);
-
-        // 5 LEB128 bytes to count 2^32 files, 1+16 bytes of hash, and room for our 1 subfolder
-        let expected_len = 5 + 1 + 8 + 8 + 1 + subfolder_expected_len;
-        let mut serialized = Vec::new();
-        stat.serialize_into(&mut serialized)?;
-        assert_eq!(serialized.len(), expected_len);
         Ok(())
     }
 }
