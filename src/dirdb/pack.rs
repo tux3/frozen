@@ -4,6 +4,7 @@ use std::error::Error;
 use std::io::{Read, Write};
 use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
+use zstd::stream::{write::Encoder, read::Decoder};
 
 ///! Very dense custom bitstream format for DirStat objects
 ///! We need a dense format because DirStats are uploaded in full after every change,
@@ -107,10 +108,11 @@ fn best_encoding_settings(stat: &DirStat) -> EncodingSettings {
 }
 
 impl DirStat {
-    fn subdirs_from_bytes(reader: &mut &[u8],
-                          files_count_stream: &mut BitstreamReader,
-                          subdirs_count_stream: &mut BitstreamReader,
-                          dirname_count_stream: &mut BitstreamReader) -> Result<Self, Box<dyn Error>> {
+    fn subdirs_from_bytes<R: Read>(reader: &mut &[u8],
+                                  files_count_stream: &mut BitstreamReader,
+                                  subdirs_count_stream: &mut BitstreamReader,
+                                  dirname_count_stream: &mut BitstreamReader,
+                                  subdirs_reader: &mut R) -> Result<Self, Box<dyn Error>> {
         let direct_files_count = files_count_stream.read();
         let subfolders_count = subdirs_count_stream.read();
         let dir_name_len = dirname_count_stream.read();
@@ -119,25 +121,26 @@ impl DirStat {
             ..Default::default()
         };
 
+        if dir_name_len == 0 {
+            reader.read_exact(&mut stat.dir_name_hash)?;
+        } else {
+            let mut dir_name = vec![0u8; dir_name_len as usize];
+            subdirs_reader.read_exact(dir_name.as_mut())?;
+            crate::crypto::raw_hash(&dir_name, 8, &mut stat.dir_name_hash)?;
+            stat.dir_name.replace(Some(dir_name));
+        }
+
         let mut total_files_count = direct_files_count;
         for _ in 0..subfolders_count {
             let subdir = Self::subdirs_from_bytes(reader,
                                                   files_count_stream,
                                                   subdirs_count_stream,
-                                                  dirname_count_stream)?;
+                                                  dirname_count_stream,
+                                                  subdirs_reader)?;
             total_files_count += subdir.total_files_count;
             stat.subfolders.push(subdir);
         }
         stat.total_files_count = total_files_count;
-
-        if dir_name_len == 0 {
-            reader.read_exact(&mut stat.dir_name_hash)?;
-        } else {
-            let mut dir_name = vec![0u8; dir_name_len as usize];
-            reader.read_exact(dir_name.as_mut())?;
-            crate::crypto::raw_hash(&dir_name, 8, &mut stat.dir_name_hash)?;
-            stat.dir_name.replace(Some(dir_name));
-        }
 
         if direct_files_count > 0 {
             reader.read_exact(&mut stat.content_hash)?;
@@ -153,12 +156,29 @@ impl DirStat {
         let mut files_count_stream =  BitstreamReader::new(reader);
         let mut subdirs_count_stream =  BitstreamReader::new(files_count_stream.slice_after());
         let mut dirname_count_stream =  BitstreamReader::new(subdirs_count_stream.slice_after());
-        let subdirs_reader = dirname_count_stream.slice_after();
 
-        Self::subdirs_from_bytes(&mut &subdirs_reader[..],
+        let mut dirnames_data = dirname_count_stream.slice_after();
+        let dirnames_data_size = leb128::read::unsigned(&mut dirnames_data)? as usize;
+        let mut dirnames_reader = Decoder::new(dirnames_data)?;
+
+        let subdirs_data = &dirnames_data[dirnames_data_size..];
+        Self::subdirs_from_bytes(&mut &subdirs_data[..],
                                  &mut files_count_stream,
                                  &mut subdirs_count_stream,
-                                 &mut dirname_count_stream)
+                                 &mut dirname_count_stream,
+                                 &mut dirnames_reader)
+    }
+
+    fn serialize_dirnames<W: Write>(&self, writer: &mut W) -> Result<(), Box<dyn Error>> {
+        if let Some(dir_name) = self.dir_name.borrow().as_ref() {
+            writer.write_all(&dir_name)?;
+        }
+
+        for subfolder in self.subfolders.iter() {
+            subfolder.serialize_dirnames(writer)?;
+        }
+
+        Ok(())
     }
 
     fn serialize_subdirs<W: Write>(&self, writer: &mut W) -> Result<(), Box<dyn Error>> {
@@ -166,14 +186,12 @@ impl DirStat {
             sum + e.total_files_count
         );
 
-        for subfolder in self.subfolders.iter() {
-            subfolder.serialize_subdirs(writer)?;
+        if self.dir_name.borrow().is_none() {
+            writer.write_all(&self.dir_name_hash)?;
         }
 
-        if let Some(dir_name) = self.dir_name.borrow().as_ref() {
-            writer.write_all(&dir_name)?;
-        } else {
-            writer.write_all(&self.dir_name_hash)?;
+        for subfolder in self.subfolders.iter() {
+            subfolder.serialize_subdirs(writer)?;
         }
 
         if direct_files_count > 0 {
@@ -199,11 +217,12 @@ impl DirStat {
             need_folder_full_path = false;
         }
 
-        // We store the name instead of the hash if it's shorter, or if we genuinely need it
+        // We store the name instead of the hash if it's short enough, or if we genuinely need it
+        // We keep names up to 2x the hash size since they typically compress very well
         let mut dir_name = self.dir_name.borrow_mut();
         if need_folder_full_path {
             dir_name.as_ref().expect("Cannot serialize DirStat without dir names");
-        } else if dir_name.is_some() && dir_name.as_ref().unwrap().len() > 8 {
+        } else if dir_name.is_some() && dir_name.as_ref().unwrap().len() > 16 {
             *dir_name = None;
         }
 
@@ -252,6 +271,13 @@ impl DirStat {
                 }
             })?;
         }
+
+        let mut dirnames_buf = Vec::new();
+        let mut compressor = Encoder::new(&mut dirnames_buf, 22)?;
+        self.serialize_dirnames(&mut compressor)?;
+        compressor.finish()?;
+        leb128::write::unsigned(writer, dirnames_buf.len() as u64)?;
+        writer.write_all(&dirnames_buf)?;
 
         self.serialize_subdirs(writer)?;
         Ok(())
