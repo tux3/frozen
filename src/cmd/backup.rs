@@ -1,14 +1,17 @@
 use std::error::Error;
+use std::path::Path;
 use std::time::Duration;
+use std::sync::mpsc::Receiver;
 use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
 use crate::data::root::{self, BackupRoot};
-use crate::data::file::RemoteFile;
+use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::path_from_arg;
+use crate::dirdb::DirDB;
 use crate::net::b2;
-use crate::termio::progress;
+use crate::termio::progress::{self, ProgressDataReader};
 use crate::signal::*;
 
 pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
@@ -33,12 +36,87 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     let (lfiles_rx, list_thread) = root.list_local_files_async(b2, &path)?;
     err_on_signal()?;
 
+    let local_dirdb = DirDB::new_from_local(&path)?;
+
     println!("Listing remote files");
     let mut rfiles = await!(root.list_remote_files(b2))?;
     err_on_signal()?;
 
-    println!("Starting upload");
-    let mut upload_threads = root.start_upload_threads(b2, config, &path);
+
+    println!("Starting backup");
+
+    await!(upload_updated_files(config, b2, &root, &path, lfiles_rx, &mut rfiles))?;
+    list_thread.join().unwrap();
+
+    if !args.is_present("keep-existing") {
+        await!(delete_dead_remote_files(config, b2, &root, &rfiles))?;
+    }
+
+    let filehash = "dirdb/".to_string()+&root.path_hash;
+    let dirdb_stream = ProgressDataReader::new(local_dirdb.to_packed(&b2.key)?, None);
+    await!(b2.upload_file(&filehash, dirdb_stream, None))?;
+
+    Ok(())
+}
+
+/// Delete remote files that were removed locally
+async fn delete_dead_remote_files<'a>(config: &'a Config,
+                                      b2: &'a mut b2::B2,
+                                      root: &'a BackupRoot,
+                                      rfiles: &'a [RemoteFile]) -> Result<(), Box<dyn Error + 'static>> {
+    let mut delete_threads = root.start_delete_threads(b2, config);
+    progress::start_output(delete_threads.len());
+
+    for rfile in rfiles {
+        'delete_send: loop {
+            for thread in &mut delete_threads {
+                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
+                    break 'delete_send;
+                }
+            }
+            err_on_signal()?;
+            await!(progress::handle_progress(config.verbose, &mut delete_threads));
+            await!(Delay::new(Duration::from_millis(20))).is_ok();
+        }
+        err_on_signal()?;
+        await!(progress::handle_progress(config.verbose, &mut delete_threads));
+    }
+
+    // Tell our delete threads to stop as they become idle
+    let mut thread_id = delete_threads.len() - 1;
+    loop {
+        err_on_signal()?;
+        if thread_id < delete_threads.len() {
+            let result = &delete_threads[thread_id].tx.try_send(None);
+            if result.is_err() {
+                await!(progress::handle_progress(config.verbose, &mut delete_threads));
+                await!(Delay::new(Duration::from_millis(20))).is_ok();
+                continue;
+            }
+        }
+
+        if thread_id == 0 {
+            break;
+        } else {
+            thread_id -= 1;
+        }
+    }
+
+    while !delete_threads.is_empty() {
+        err_on_signal()?;
+        await!(progress::handle_progress(config.verbose, &mut delete_threads));
+        await!(Delay::new(Duration::from_millis(20))).is_ok();
+    }
+
+    Ok(())
+}
+
+/// Upload files that were modified locally
+async fn upload_updated_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
+                                  root: &'a BackupRoot, path: &'a Path,
+                                  lfiles_rx: Receiver<LocalFile>,
+                                  rfiles: &'a mut Vec<RemoteFile>) -> Result<(), Box<dyn Error + 'static>> {
+    let mut upload_threads = root.start_upload_threads(b2, config, path);
 
     progress::start_output(upload_threads.len());
 
@@ -86,61 +164,6 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     while !upload_threads.is_empty() {
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut upload_threads));
-        await!(Delay::new(Duration::from_millis(20))).is_ok();
-    }
-    list_thread.join().unwrap();
-
-    if !args.is_present("keep-existing") {
-        await!(delete_dead_remote_files(config, b2, root, rfiles))?;
-    }
-
-    Ok(())
-}
-
-/// Delete remote files that were removed locally
-async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
-                                      root: BackupRoot, rfiles: Vec<RemoteFile>) -> Result<(), Box<dyn Error + 'static>> {
-    let mut delete_threads = root.start_delete_threads(b2, config);
-    progress::start_output(delete_threads.len());
-
-    for rfile in rfiles {
-        'delete_send: loop {
-            for thread in &mut delete_threads {
-                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
-                    break 'delete_send;
-                }
-            }
-            err_on_signal()?;
-            await!(progress::handle_progress(config.verbose, &mut delete_threads));
-            await!(Delay::new(Duration::from_millis(20))).is_ok();
-        }
-        err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut delete_threads));
-    }
-
-    // Tell our delete threads to stop as they become idle
-    let mut thread_id = delete_threads.len() - 1;
-    loop {
-        err_on_signal()?;
-        if thread_id < delete_threads.len() {
-            let result = &delete_threads[thread_id].tx.try_send(None);
-            if result.is_err() {
-                await!(progress::handle_progress(config.verbose, &mut delete_threads));
-                await!(Delay::new(Duration::from_millis(20))).is_ok();
-                continue;
-            }
-        }
-
-        if thread_id == 0 {
-            break;
-        } else {
-            thread_id -= 1;
-        }
-    }
-
-    while !delete_threads.is_empty() {
-        err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut delete_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
 
