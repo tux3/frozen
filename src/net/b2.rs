@@ -76,15 +76,23 @@ impl B2 {
     async fn request_with_backoff<'a, F: 'a>(&'a self, req_builder: F) -> Result<(StatusCode, Chunk), Box<dyn Error + 'static>>
         where F: Fn() -> Request<Body>
     {
-        let mut backoff = Duration::from_millis(100);
-        for i in 0i32..10 {
-            if i > 0 {
-                sleep(backoff);
-                backoff *= 2;
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            if attempts > 1 {
+                let cooldown = (1 << attempts.min(5)) * 100; // Up to 3.2 seconds
+                sleep(Duration::from_millis(cooldown));
             }
 
             let req = req_builder();
-            let res = await!(self.client.request(req))?;
+            let res = match await!(self.client.request(req)) {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = format!("Unexpected request failure: {}", e);
+                    await!(warning(&self.tx_progress, &err_str));
+                    continue;
+                },
+            };
             let status = res.status();
             let body = await!(res.into_body().concat2())?;
 
@@ -96,8 +104,6 @@ impl B2 {
 
             return Ok((status, body))
         }
-
-        Err(From::from("Too many failed requests, giving up"))
     }
 
     pub async fn authenticate(config: &Config) -> Result<B2, Box<dyn Error + 'static>> {
