@@ -37,7 +37,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
 
     // Delete all remote files
     let mut delete_threads = root.start_delete_threads(b2, config);
-    progress::start_output(delete_threads.len());
+    progress::start_output(config.verbose, delete_threads.len());
 
     for rfile in rfiles {
         'delete_send: loop {

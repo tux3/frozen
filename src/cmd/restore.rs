@@ -37,7 +37,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     println!("Starting download");
     let mut download_threads = root.start_download_threads(&b2, config, &target);
 
-    progress::start_output(download_threads.len());
+    progress::start_output(config.verbose, download_threads.len());
 
     for file in lfiles_rx {
         let rfile = rfiles.binary_search_by(|v| v.cmp_local(&file));

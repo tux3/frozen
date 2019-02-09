@@ -4,7 +4,8 @@ use futures::{stream::StreamExt, sink::SinkExt};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::data::root::BackupRoot;
 use crate::net::{b2, progress_thread};
-use crate::termio::progress::Progress;
+use crate::termio::progress::{Progress, progress_output};
+use std::borrow::Borrow;
 
 pub struct DeleteThread {
     pub tx: Sender<Option<RemoteFile>>,
@@ -37,36 +38,43 @@ impl DeleteThread {
 
     async fn delete(root: BackupRoot, b2: b2::B2,
                     mut rx_file: Receiver<Option<RemoteFile>>, mut tx_progress: Sender<Progress>)
-                    -> Result<(), Box<dyn Error + 'static>> {
+                    -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         while let Some(file) = await!(rx_file.next()) {
             if file.is_none() {
                 break;
             }
             let file = file.unwrap();
 
-            await!(tx_progress.send(Progress::Started(file.rel_path.display().to_string())))?;
-            await!(tx_progress.send(Progress::Deleting))?;
-
-            let version = RemoteFileVersion{
-                path: root.path_hash.clone()+"/"+&file.rel_path_hash,
-                id: file.id.clone(),
-            };
-
-            let err = await!(b2.delete_file_version(&version)).map_err(|err| {
-                Progress::Error(format!("Failed to delete last version of \"{}\": {}", file.rel_path.display(), err))
-            });
-            if let Err(err) = err {
-                await!(tx_progress.send(err))?;
-                continue;
-            }
-
-            let path = root.path_hash.clone()+"/"+&file.rel_path_hash;
-            let _ = await!(b2.hide_file(&path));
-
-            await!(tx_progress.send(Progress::Deleted(file.rel_path.display().to_string())))?;
+            delete(&root, &b2, file).await;
         }
 
         await!(tx_progress.send(Progress::Terminated))?;
         Ok(())
     }
+}
+
+pub async fn delete(root: impl Borrow<BackupRoot>, b2: impl Borrow<b2::B2>, file: RemoteFile) {
+    progress_output(Progress::Started(file.rel_path.display().to_string()));
+    progress_output(Progress::Deleting);
+
+    let b2 = b2.borrow();
+    let root = root.borrow();
+
+    let version = RemoteFileVersion{
+        path: root.path_hash.clone()+"/"+&file.rel_path_hash,
+        id: file.id.clone(),
+    };
+
+    let err = await!(b2.delete_file_version(&version)).map_err(|err| {
+        Progress::Error(format!("Failed to delete last version of \"{}\": {}", file.rel_path.display(), err))
+    });
+    if let Err(Progress::Error(msg)) = err {
+        progress_output(Progress::Error(msg));
+        return;
+    }
+
+    let path = root.path_hash.clone()+"/"+&file.rel_path_hash;
+    let _ = await!(b2.hide_file(&path));
+
+    progress_output(Progress::Deleted(file.rel_path.display().to_string()));
 }

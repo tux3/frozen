@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use crate::crypto;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalFile {
     pub rel_path: PathBuf,
     pub rel_path_hash: String,

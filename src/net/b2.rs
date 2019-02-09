@@ -3,6 +3,8 @@ use std::error::Error;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::thread::sleep;
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::cell::RefCell;
 use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
 use futures::stream::{Stream, TryStreamExt};
@@ -17,9 +19,13 @@ use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
 use crate::termio::progress::{ProgressDataReader, Progress};
 
+thread_local! {
+    static THREADLOCAL_UPLOAD_AUTH: RefCell<Option<B2Upload>> = RefCell::new(None);
+}
+
 #[derive(Clone, PartialEq)]
-pub struct B2Upload {
-    pub url: String,
+struct B2Upload {
+    pub upload_url: String,
     pub auth_token: String,
 }
 
@@ -30,7 +36,6 @@ pub struct B2 {
     pub auth_token: String,
     pub api_url: String,
     pub bucket_download_url: String,
-    pub upload: Option<B2Upload>,
     pub client: Client<HttpsConnector<HttpConnector>>,
     pub tx_progress: Option<Sender<Progress>>,
 }
@@ -44,7 +49,6 @@ impl Clone for B2 {
             auth_token: self.auth_token.clone(),
             api_url: self.api_url.clone(),
             bucket_download_url: self.bucket_download_url.clone(),
-            upload: self.upload.clone(),
             client: make_client(),
             tx_progress: None,
         }
@@ -144,7 +148,6 @@ impl B2 {
             bucket_id: String::new(),
             api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
             bucket_download_url,
-            upload: None,
             tx_progress: None,
             client,
         };
@@ -316,7 +319,7 @@ impl B2 {
 
 
         Ok(B2Upload {
-            url: reply_json["uploadUrl"].as_str().unwrap().to_string(),
+            upload_url: reply_json["uploadUrl"].as_str().unwrap().to_string(),
             auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
         })
     }
@@ -340,13 +343,25 @@ impl B2 {
         Ok(())
     }
 
-    pub async fn upload_file<'a>(&'a mut self, filename: &'a str,
+    pub async fn upload_file<'a>(&'a self, filename: &'a str,
                              data: ProgressDataReader,
                              enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
 
-        if self.upload.is_none() {
-            self.upload = Some(await!(self.get_upload_url())?);
-        }
+        let upload_auth_opt = THREADLOCAL_UPLOAD_AUTH.with(|cell| {
+            let url = cell.borrow_mut();
+            if url.is_some() {
+                url.clone()
+            } else {
+                None
+            }
+        });
+        let B2Upload{upload_url, auth_token} = if let Some(auth) = upload_auth_opt {
+            auth
+        } else {
+            let auth = self.get_upload_url().await?;
+            THREADLOCAL_UPLOAD_AUTH.with(|cell| cell.replace(Some(auth.clone())));
+            auth
+        };
 
         let enc_meta = if enc_meta.is_some() {
             enc_meta.as_ref().unwrap().to_owned()
@@ -359,8 +374,8 @@ impl B2 {
         let (status, body) = await!(self.request_with_backoff(|| {
             let data_stream = Box::new(data.clone()) as Box<dyn Stream<Item=Result<Chunk, Box<(dyn std::error::Error + Sync + Send + 'static)>>> + Send + Sync + 'static>;
             let sha1 = crypto::sha1_string(data.as_slice());
-            Request::post(&self.upload.as_ref().unwrap().url)
-                .header(AUTHORIZATION, self.upload.as_ref().unwrap().auth_token.clone())
+            Request::post(&upload_url)
+                .header(AUTHORIZATION, &auth_token as &str)
                 .header(CONNECTION, "keep-alive")
                 .header(CONTENT_TYPE, "application/octet-stream")
                 .header(CONTENT_LENGTH, data.len())
@@ -378,7 +393,7 @@ impl B2 {
         };
 
         if !status.is_success() {
-            self.upload = None;
+            THREADLOCAL_UPLOAD_AUTH.with(|cell| cell.replace(None));
             return Err(From::from(format!("upload_file failed with error {}: {}",
                                           status.as_u16(),
                                           reply_json["code"])));

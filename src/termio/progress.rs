@@ -2,7 +2,9 @@ use std::vec::Vec;
 use std::io::{self, stdout, Write, Read, ErrorKind};
 use std::error::Error;
 use std::cmp;
-use futures::channel::mpsc::Sender;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use futures::task::Context;
 use pretty_bytes::converter::convert;
 use bytes::Bytes;
 use futures::{stream::Stream, Poll};
@@ -10,8 +12,14 @@ use hyper::Chunk;
 use ignore_result::Ignore;
 use crate::net::progress_thread;
 use super::vt100::*;
-use std::pin::Pin;
-use futures::task::Context;
+
+static PROGRESS_VERBOSE_FLAG: AtomicBool = AtomicBool::new(false);
+static PROGRESS_NUM_THREADS: AtomicU16 = AtomicU16::new(0);
+static PROGRESS_THREADS_WITH_ID: AtomicU16 = AtomicU16::new(0);
+
+thread_local! {
+    static PROGRESS_CUR_THREAD_ID: u16 = PROGRESS_THREADS_WITH_ID.fetch_add(1, Ordering::SeqCst);
+}
 
 #[derive(Debug)]
 pub enum Progress {
@@ -36,15 +44,23 @@ const DATA_READER_MAX_CHUNK_SIZE: usize = 4*1024*1024;
 pub struct ProgressDataReader {
     data: Bytes,
     pos: usize,
-    tx_progress: Option<Sender<Progress>>,
+    silent: bool
 }
 
 impl ProgressDataReader {
-    pub fn new(data: Vec<u8>, tx_progress: Option<Sender<Progress>>) -> ProgressDataReader {
+    pub fn new(data: Vec<u8>) -> ProgressDataReader {
         ProgressDataReader {
             data: data.into(),
             pos: 0,
-            tx_progress,
+            silent: false,
+        }
+    }
+
+    pub fn new_silent(data: Vec<u8>) -> ProgressDataReader {
+        ProgressDataReader {
+            data: data.into(),
+            pos: 0,
+            silent: true,
         }
     }
 
@@ -62,7 +78,7 @@ impl Clone for ProgressDataReader {
         Self {
             data: self.data.clone(),
             pos: self.pos,
-            tx_progress: self.tx_progress.clone(),
+            silent: self.silent,
         }
     }
 }
@@ -78,9 +94,8 @@ impl Stream for ProgressDataReader {
         let chunk_slice = self.data.slice(self.pos, self.pos+read_size);
         self.pos += read_size;
 
-        if self.tx_progress.is_some() {
-            let progress = Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64);
-            self.tx_progress.as_mut().unwrap().try_send(progress).ignore();
+        if !self.silent {
+            progress_output(Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64));
         }
 
         Poll::Ready(Some(Ok(chunk_slice.into())))
@@ -95,65 +110,70 @@ impl Read for ProgressDataReader {
         buf[..read_size].copy_from_slice(target);
 
         self.pos += read_size;
-        if self.tx_progress.is_some() {
-            let progress = Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64);
-            if self.tx_progress.as_mut().unwrap().try_send(progress).is_err() {
-                return Err(io::Error::new(ErrorKind::Other, "Receiving thread seems gone"));
-            }
+        if !self.silent {
+            progress_output(Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64));
         }
         Ok(read_size)
     }
 }
 
 /// Call once before using the progress output functions
-pub fn start_output(num_threads: usize) {
+pub fn start_output(verbose: bool, num_threads: usize) {
+    PROGRESS_VERBOSE_FLAG.store(verbose, Ordering::Release);
+    PROGRESS_NUM_THREADS.store(num_threads as u16, Ordering::Release);
+    PROGRESS_THREADS_WITH_ID.store(0, Ordering::Release);
     for thread_id in 0..num_threads {
         println!("{} Waiting to transfer...", num_threads-thread_id);
     }
 }
 
 /// This makes use of VT100, so don't mix with regular print functions
-pub fn progress_output(verbose: bool, progress: &Progress, thread_id: usize, num_threads: usize) {
+pub fn progress_output(progress: Progress) {
+    let thread_id = PROGRESS_CUR_THREAD_ID.with(|cur_id| *cur_id);
+    progress_output_with_thread_id(&progress, thread_id);
+}
+
+fn progress_output_with_thread_id(progress: &Progress, thread_id: u16) {
     use self::Progress::*;
 
-    let off = thread_id+1;
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    let num_threads = PROGRESS_NUM_THREADS.load(Ordering::Acquire) as usize;
+    let off = (thread_id+1) as usize;
     match progress {
-        Started(str) => rewrite_at(off, VT100::StyleActive, &format!("Started \t\t\t{}", str)),
-        Uploading(n, s) => write_at(off, VT100::StyleActive,
-                                            &format!("Uploaded {}% of {}", n, convert(*s as f64))),
-        Downloading(_n) => write_at(off, VT100::StyleActive,  "Downloading        "),
-        Compressing(_) => write_at(off, VT100::StyleActive,   "Compressing        "),
-        Decompressing(_) => write_at(off, VT100::StyleActive, "Decompressing      "),
-        Encrypting(_) => write_at(off, VT100::StyleActive,    "Encrypting         "),
-        Decrypting(_) => write_at(off, VT100::StyleActive,    "Decrypting         "),
-        Deleting => write_at(off, VT100::StyleActive,         "Deleting           "),
+        Started(str) => rewrite_at(&mut lock, off, VT100::StyleActive, &format!("Started \t\t\t{}", str)),
+        Uploading(n, s) => write_at(&mut lock, off, VT100::StyleActive,
+                                    &format!("Uploaded {}% of {}", n, convert(*s as f64))),
+        Downloading(_n) => write_at(&mut lock, off, VT100::StyleActive,  "Downloading        "),
+        Compressing(_) => write_at(&mut lock, off, VT100::StyleActive,   "Compressing        "),
+        Decompressing(_) => write_at(&mut lock, off, VT100::StyleActive, "Decompressing      "),
+        Encrypting(_) => write_at(&mut lock, off, VT100::StyleActive,    "Encrypting         "),
+        Decrypting(_) => write_at(&mut lock, off, VT100::StyleActive,    "Decrypting         "),
+        Deleting => write_at(&mut lock, off, VT100::StyleActive,         "Deleting           "),
         Warning(str) => {
-            insert_at(num_threads, VT100::StyleWarning, &format!("Warning: {}", str));
+            insert_at(&mut lock, num_threads, VT100::StyleWarning, &format!("Warning: {}", str));
         },
         Error(str) => {
-            rewrite_at(off, VT100::StyleActive,               "Done               ");
-            insert_at(num_threads, VT100::StyleError, &format!("Error: {}", str));
+            rewrite_at(&mut lock, off, VT100::StyleActive,               "Done               ");
+            insert_at(&mut lock, num_threads, VT100::StyleError, &format!("Error: {}", str));
         },
         Transferred(str) => {
-            rewrite_at(off, VT100::StyleActive,               "Done               ");
-            if verbose {
-                insert_at(num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
+            rewrite_at(&mut lock, off, VT100::StyleActive,               "Done               ");
+            if PROGRESS_VERBOSE_FLAG.load(Ordering::Acquire) {
+                insert_at(&mut lock, num_threads, VT100::StyleReset, &format!("Transferred \t\t\t{}", str));
             }
         },
         Deleted(str) => {
-            rewrite_at(off, VT100::StyleActive,               "Done               ");
-            if verbose {
-                insert_at(num_threads, VT100::StyleReset, &format!("Deleted     \t\t\t{}", str));
+            rewrite_at(&mut lock, off, VT100::StyleActive,               "Done               ");
+            if PROGRESS_VERBOSE_FLAG.load(Ordering::Acquire) {
+                insert_at(&mut lock, num_threads, VT100::StyleReset, &format!("Deleted     \t\t\t{}", str));
             }
         },
         Terminated => {
-            remove_at(off);
+            remove_at(&mut lock, off);
         }
     };
-}
-
-pub fn flush() {
-    stdout().flush().unwrap();
+    lock.flush().unwrap();
 }
 
 /// Receives and displays progress information. Removes dead threads from the list.
@@ -173,12 +193,11 @@ pub async fn handle_progress<T: progress_thread::ProgressThread>(verbose: bool, 
                 if let Progress::Terminated = progress {
                     delete_later = true;
                 }
-                progress_output(verbose, &progress, thread_id, num_threads)
+                progress_output_with_thread_id(&progress, thread_id as u16)
             }
         }
         if delete_later {
             threads.remove(thread_id);
         }
     }
-    flush();
 }

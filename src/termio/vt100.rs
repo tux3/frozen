@@ -1,4 +1,5 @@
 use std::fmt::{self, Display};
+use std::io::Write;
 
 pub enum VT100 {
     ClearLine,
@@ -29,21 +30,21 @@ impl Display for VT100 {
     }
 }
 
-pub fn remove_at(offset: usize) {
-    print!("{}{}{}\r", VT100::MoveUp(offset), VT100::RemoveLine, VT100::MoveDown(offset-1));
+pub fn remove_at(writer: &mut impl Write, offset: usize) {
+    write!(writer, "{}{}{}\r", VT100::MoveUp(offset), VT100::RemoveLine, VT100::MoveDown(offset-1)).unwrap();
 }
 
-pub fn insert_at(offset: usize, style: VT100, str: &str) {
-    println!("{}{}\r{}{}{}{}", VT100::MoveUp(offset), VT100::InsertAbove, style, str,
-                                VT100::StyleReset, VT100::MoveDown(offset));
+pub fn insert_at(writer: &mut impl Write, offset: usize, style: VT100, str: &str) {
+    writeln!(writer, "{}{}\r{}{}{}{}", VT100::MoveUp(offset), VT100::InsertAbove, style, str,
+                                VT100::StyleReset, VT100::MoveDown(offset)).unwrap();
 }
 
-pub fn rewrite_at(offset: usize, style: VT100, str: &str) {
-    print!("{}{}\r{}{}{}{}", VT100::MoveUp(offset), VT100::ClearLine, style, str,
-                                VT100::StyleReset, VT100::MoveDown(offset));
+pub fn rewrite_at(writer: &mut impl Write, offset: usize, style: VT100, str: &str) {
+    write!(writer, "{}{}\r{}{}{}{}", VT100::MoveUp(offset), VT100::ClearLine, style, str,
+                                VT100::StyleReset, VT100::MoveDown(offset)).unwrap();
 }
 
-pub fn write_at(offset: usize, style: VT100, str: &str) {
-    print!("{}\r{}{}{}{}", VT100::MoveUp(offset), style, str,
-                            VT100::StyleReset, VT100::MoveDown(offset));
+pub fn write_at(writer: &mut impl Write, offset: usize, style: VT100, str: &str) {
+    write!(writer, "{}\r{}{}{}{}", VT100::MoveUp(offset), style, str,
+                            VT100::StyleReset, VT100::MoveDown(offset)).unwrap();
 }

@@ -55,11 +55,15 @@ impl BackupRoot {
     }
 
     pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
+        await!(self.list_remote_files_at(b2, ""))
+    }
+
+    pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
         if self.lock.is_none() {
             return Err(From::from("Cannot list remote files, backup root isn't locked!"));
         }
 
-        let path = self.path_hash.clone()+"/";
+        let path = self.path_hash.clone()+"/"+prefix;
         let mut files = await!(b2.list_remote_files(&path))?;
         files.sort();
         Ok(files)
@@ -81,12 +85,11 @@ impl BackupRoot {
         let rand_str = HEXLOWER_PERMISSIVE.encode(&crypto::randombytes(4));
         let lock_path_prefix = self.path_hash.to_owned()+".lock.";
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
-        let mut lock_b2 = b2.clone();
 
-        let data_reader = ProgressDataReader::new(Vec::new(), None);
-        let lock_version = await!(lock_b2.upload_file(&lock_path, data_reader, None))?;
-        let locks = await!(lock_b2.list_remote_file_versions(&lock_path_prefix));
-        self.lock = Some((lock_version, lock_b2));
+        let data_reader = ProgressDataReader::new_silent(Vec::new());
+        let lock_version = await!(b2.upload_file(&lock_path, data_reader, None))?;
+        let locks = await!(b2.list_remote_file_versions(&lock_path_prefix));
+        self.lock = Some((lock_version, b2.clone()));
 
         if locks.is_err() {
             let _ = self.unlock();
@@ -164,16 +167,16 @@ pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error +
     Ok(deserialize(&data[..]).unwrap())
 }
 
-pub async fn save_roots<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot]) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> Result<(), Box<dyn Error + 'static>> {
     let plain_data = serialize(roots)?;
     let data = crypto::encrypt(&plain_data, &b2.key);
-    let data_reader = ProgressDataReader::new(data, None);
+    let data_reader = ProgressDataReader::new_silent(data);
     await!(b2.upload_file("backup_root", data_reader, None))?;
     Ok(())
 }
 
 /// Opens an existing backup root, or creates one if necessary
-pub async fn open_create_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
+pub async fn open_create_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
                                   -> Result<BackupRoot, Box<dyn Error + 'static>> {
     let mut root: BackupRoot;
     if let Some(existing_root) = roots.iter_mut().find(|r| r.path == *path) {

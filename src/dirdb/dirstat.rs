@@ -1,19 +1,21 @@
 use std::error::Error;
-use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
 use crate::data::paths::path_to_bytes;
+use super::FileStat;
 
 #[derive(Default, Debug)]
 pub struct DirStat {
     /// This is the total number of files in the tree under this directory
     pub total_files_count: u64,
+    /// The files directly in this folder
+    pub direct_files: Option<Vec<FileStat>>,
     /// The immediate subfolders of this directory
     pub subfolders: Vec<DirStat>,
     /// This directory's clear name
-    pub dir_name: RefCell<Option<Vec<u8>>>,
+    pub dir_name: Option<Vec<u8>>,
     /// The hash of the folder name
     pub dir_name_hash: [u8; 8],
     /// Hash of the content's metadata, changes if any file in this folder's tree changes
@@ -21,9 +23,10 @@ pub struct DirStat {
 }
 
 impl DirStat {
-    pub fn new(dir_path: &Path) -> Result<Self, Box<dyn Error>> {
+    pub fn new(base_path: &Path, dir_path: &Path) -> Result<Self, Box<dyn Error>> {
         let mut hasher = VarBlake2b::new(8)?;
         let mut total_files_count = 0;
+        let mut direct_files = Vec::new();
         let mut subfolders = Vec::new();
 
         let mut entries = std::fs::read_dir(dir_path)?.filter_map(|e| e.ok()).collect::<Vec<_>>();
@@ -31,9 +34,11 @@ impl DirStat {
 
         for entry in entries {
             let path = entry.path();
+            let rel_path = PathBuf::from(path.strip_prefix(base_path)?);
+            hasher.input(path_to_bytes(&rel_path).unwrap());
             let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
             if path.is_dir() && !is_symlink {
-                let subfolder = DirStat::new(&path)?;
+                let subfolder = DirStat::new(&base_path, &path)?;
                 total_files_count += subfolder.total_files_count;
                 hasher.input(&subfolder.content_hash);
                 subfolders.push(subfolder);
@@ -44,6 +49,8 @@ impl DirStat {
                 hasher.input(&mtime.as_secs().to_le_bytes());
                 hasher.input(&mtime.subsec_nanos().to_le_bytes());
                 hasher.input(&meta.len().to_le_bytes());
+
+                direct_files.push(FileStat::new(rel_path, meta)?);
             }
         }
 
@@ -51,7 +58,8 @@ impl DirStat {
         let mut result = Self {
             total_files_count,
             subfolders,
-            dir_name: RefCell::new(Some(dir_name.to_owned())),
+            direct_files: Some(direct_files),
+            dir_name: Some(dir_name.to_owned()),
             ..Default::default()
         };
         crate::crypto::raw_hash(&dir_name, 8, &mut result.dir_name_hash)?;
@@ -66,8 +74,11 @@ impl PartialEq for DirStat {
         && self.subfolders == other.subfolders
         && self.dir_name_hash == other.dir_name_hash
         && self.content_hash == other.content_hash
+        && self.content_hash != [0; 8]
     }
 }
+
+impl Eq for DirStat {}
 
 #[cfg(test)]
 mod tests {
@@ -77,7 +88,8 @@ mod tests {
 
     #[test]
     fn count_subfolders() -> Result<(), Box<dyn Error>> {
-        let stat = DirStat::new(Path::new("test_data/Folder A/ac"))?;
+        let path = Path::new("test_data/Folder A/ac");
+        let stat = DirStat::new(path, path)?;
         assert_eq!(stat.subfolders.len(), 1);
         assert_eq!(stat.total_files_count, 2);
         let stat = &stat.subfolders[0]; // ac/aca/
@@ -92,20 +104,23 @@ mod tests {
     #[test]
     fn count_hidden_files() -> Result<(), Box<dyn Error>> {
         // There's two regular files and a file starting with a '.'
-        assert_eq!(DirStat::new(Path::new("test_data/Folder B/"))?.total_files_count, 3);
+        let path = Path::new("test_data/Folder B/");
+        assert_eq!(DirStat::new(path, path)?.total_files_count, 3);
         Ok(())
     }
 
     #[test]
     fn keeps_empty_folders() -> Result<(), Box<dyn Error>> {
         // Subfolders aa/ and ac/ contain files, but ab/ is empty (and kept in Git as a submodule!)
-        assert_eq!(DirStat::new(Path::new("test_data/Folder A"))?.subfolders.len(), 3);
+        let path = Path::new("test_data/Folder A");
+        assert_eq!(DirStat::new(path, path)?.subfolders.len(), 3);
         Ok(())
     }
 
     #[test]
     fn count_total_files() -> Result<(), Box<dyn Error>> {
-        assert_eq!(DirStat::new(Path::new("test_data/"))?.total_files_count, 8);
+        let path = Path::new("test_data/");
+        assert_eq!(DirStat::new(path, path)?.total_files_count, 8);
         Ok(())
     }
 }
