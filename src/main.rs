@@ -1,5 +1,6 @@
 #![feature(await_macro, async_await, futures_api)]
 
+use crate::config::Config;
 use clap::{Arg, App, SubCommand, ArgMatches};
 use std::process::exit;
 use tokio::await;
@@ -68,7 +69,7 @@ fn main() {
         )
         .get_matches();
 
-    let config = config::get_or_create_config(args.is_present("verbose"));
+    let config = Config::get_or_create(args.is_present("verbose"));
 
     let mut return_code = 0;
     crate::futures_compat::tokio_run(async move {

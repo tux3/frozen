@@ -18,8 +18,10 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     let target = args.value_of("destination").unwrap_or(&path);
     fs::create_dir_all(target)?;
 
+    let keys = config.get_app_keys()?;
+
     println!("Connecting to Backblaze B2");
-    let b2 = await!(B2::authenticate(config))?;
+    let b2 = await!(B2::authenticate(config, &keys))?;
 
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(&b2))?;

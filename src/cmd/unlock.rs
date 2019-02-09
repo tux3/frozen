@@ -13,8 +13,10 @@ pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
         return Err(From::from(format!("{} is not a folder!", &path)))
     }
 
+    let keys = config.get_app_keys()?;
+
     println!("Connecting to Backblaze B2");
-    let mut b2 = await!(B2::authenticate(config))?;
+    let mut b2 = await!(B2::authenticate(config, &keys))?;
 
     println!("Downloading backup metadata");
     let roots = await!(root::fetch_roots(&b2))?;

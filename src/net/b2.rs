@@ -12,7 +12,7 @@ use hyper_rustls::HttpsConnector;
 use serde_json::{self, Value};
 use data_encoding::BASE64_NOPAD;
 use tokio::await;
-use crate::crypto::{self, encode_meta, decode_meta};
+use crate::crypto::{self, AppKeys, encode_meta, decode_meta};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
 use crate::progress::{ProgressDataReader, Progress};
@@ -61,7 +61,7 @@ async fn warning<'a>(maybe_progress: &'a Option<Sender<Progress>>, msg: &'a str)
     }
 }
 
-fn make_basic_auth(username: &str, password: &str) -> String {
+fn make_basic_auth(AppKeys{b2_key_id: username, b2_key: password, ..}: &AppKeys) -> String {
     let val = username.to_owned() + ":" + password;
     let encoded = BASE64_NOPAD.encode(val.as_bytes());
     "Basic ".to_owned() + &encoded
@@ -106,11 +106,10 @@ impl B2 {
         }
     }
 
-    pub async fn authenticate(config: &Config) -> Result<B2, Box<dyn Error + 'static>> {
+    pub async fn authenticate<'a>(config: &'a Config, keys: &'a AppKeys) -> Result<B2, Box<dyn Error + 'static>> {
         let client = make_client();
-        let basic_auth = make_basic_auth(&config.app_key_id, &config.app_key);
+        let basic_auth = make_basic_auth(keys);
         let bucket_name = config.bucket_name.to_owned();
-        let key = config.key.clone();
 
         let req = Request::get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
             .header(AUTHORIZATION, basic_auth)
@@ -137,7 +136,7 @@ impl B2 {
         }
 
         let mut b2 = B2 {
-            key,
+            key: keys.encryption_key.clone(),
             acc_id: reply_json["accountId"].as_str().unwrap().to_string(),
             auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
             bucket_id: String::new(),

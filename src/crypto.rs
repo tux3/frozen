@@ -11,6 +11,12 @@ use digest::{Digest, Input, VariableOutput};
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
+pub struct AppKeys {
+    pub b2_key_id: String,
+    pub b2_key: String,
+    pub encryption_key: Key,
+}
+
 /// Derives a secret key from the user password and the account ID (used as a salt)
 pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
     let mut key = Key([0; secretbox::KEYBYTES]);

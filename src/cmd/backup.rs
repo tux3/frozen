@@ -20,8 +20,10 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     }
     let target = fs::canonicalize(args.value_of("destination").unwrap_or(&path))?.to_string_lossy().into_owned();
 
+    let keys = config.get_app_keys()?;
+
     println!("Connecting to Backblaze B2");
-    let b2 = &mut await!(b2::B2::authenticate(config))?;
+    let b2 = &mut await!(b2::B2::authenticate(config, &keys))?;
 
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(b2))?;

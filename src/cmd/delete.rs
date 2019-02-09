@@ -15,8 +15,10 @@ use crate::util;
 pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
     let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
 
+    let keys = config.get_app_keys()?;
+
     println!("Connecting to Backblaze B2");
-    let mut b2 = await!(B2::authenticate(config))?;
+    let mut b2 = await!(B2::authenticate(config, &keys))?;
 
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(&b2))?;
