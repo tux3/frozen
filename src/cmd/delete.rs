@@ -13,7 +13,7 @@ use crate::termio::progress;
 use crate::signal::*;
 
 pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
+    let path = fs::canonicalize(args.value_of("target").unwrap())?.to_string_lossy().into_owned();
 
     let keys = config.get_app_keys()?;
 

@@ -8,7 +8,7 @@ use crate::net::b2::B2;
 use crate::termio::prompt_yes_no;
 
 pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(args.value_of("source").unwrap())?.to_string_lossy().into_owned();
+    let path = fs::canonicalize(args.value_of("target").unwrap())?.to_string_lossy().into_owned();
     if !Path::new(&path).is_dir() {
         return Err(From::from(format!("{} is not a folder!", &path)))
     }
