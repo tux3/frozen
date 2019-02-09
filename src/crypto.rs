@@ -1,5 +1,6 @@
 use std::vec::Vec;
 use std::error::Error;
+use std::path::{PathBuf, Path};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
 use libsodium_sys;
@@ -68,10 +69,10 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
     }
 }
 
-pub fn hash_path(secret_path: &str, key: &Key) -> String {
+pub fn hash_path(secret_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, 20);
-    hasher.input(secret_path.as_bytes());
+    hasher.input(serialize(secret_path).unwrap());
     BASE64URL_NOPAD.encode(&hasher.vec_result())
 }
 
@@ -85,13 +86,13 @@ pub fn randombytes(count: usize) -> Vec<u8> {
     randombytes::randombytes(count)
 }
 
-pub fn encode_meta(key: &Key, filename: &str, time: u64, mode: u32, is_symlink: bool) -> String {
+pub fn encode_meta(key: &Key, filename: &Path, time: u64, mode: u32, is_symlink: bool) -> String {
     let data = (filename, time, mode, is_symlink);
     let encoded = serialize(&data).unwrap();
     BASE64URL_NOPAD.encode(&encrypt(&encoded, key))
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(String, u64, u32, bool), Box<Error>> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(PathBuf, u64, u32, bool), Box<Error>> {
     let data = BASE64URL_NOPAD.decode(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)

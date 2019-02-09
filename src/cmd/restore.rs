@@ -5,18 +5,15 @@ use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
-use crate::data::root;
+use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
 use crate::termio::progress;
 use crate::signal::*;
 
 pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let mut path = args.value_of("source").unwrap().to_string();
-    if let Ok(canon_path) = fs::canonicalize(&path) {
-        path = canon_path.to_string_lossy().into_owned();
-    }
-    let target = args.value_of("destination").unwrap_or(&path);
-    fs::create_dir_all(target)?;
+    let path = path_from_arg(args, "source")?;
+    let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
+    fs::create_dir_all(&target)?;
 
     let keys = config.get_app_keys()?;
 
@@ -28,11 +25,11 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
 
     let signal_flag = setup_signal_flag();
 
-    println!("Opening backup folder {}", path);
+    println!("Opening backup folder {}", path.display());
     let root = await!(root::open_root(&b2, &mut roots, &path))?;
 
     println!("Starting to list local files");
-    let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, target)?;
+    let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, &target)?;
     err_on_signal(&signal_flag)?;
 
     println!("Listing remote files");
@@ -40,7 +37,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     err_on_signal(&signal_flag)?;
 
     println!("Starting download");
-    let mut download_threads = root.start_download_threads(&b2, config, target);
+    let mut download_threads = root.start_download_threads(&b2, config, &target);
 
     progress::start_output(download_threads.len());
 

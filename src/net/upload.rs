@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::path::{PathBuf, Path};
 use zstd;
 use futures::channel::mpsc::{channel, Sender, Receiver};
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -21,7 +22,7 @@ impl progress_thread::ProgressThread for UploadThread {
 }
 
 impl UploadThread {
-    pub fn new(root: &BackupRoot, b2: &b2::B2, config: &Config, source_path: &str) -> UploadThread {
+    pub fn new(root: &BackupRoot, b2: &b2::B2, config: &Config, source_path: &Path) -> UploadThread {
         let root = root.clone();
         let source_path = source_path.to_owned();
         let config = config.clone();
@@ -41,7 +42,7 @@ impl UploadThread {
         }
     }
 
-    async fn upload(root: BackupRoot, mut b2: b2::B2, config: Config, source_path: String,
+    async fn upload(root: BackupRoot, mut b2: b2::B2, config: Config, source_path: PathBuf,
                     mut rx_file: Receiver<Option<LocalFile>>, mut tx_progress: Sender<Progress>)
                     -> Result<(), Box<dyn Error + 'static>> {
         while let Some(file) = await!(rx_file.next()) {
@@ -50,8 +51,8 @@ impl UploadThread {
             }
             let file = file.unwrap();
 
-            let filename = file.path_str().into_owned();
-            await!(tx_progress.send(Progress::Started(filename.clone())))?;
+            let filename = &file.rel_path;
+            await!(tx_progress.send(Progress::Started(filename.display().to_string())))?;
 
             let is_symlink = file.is_symlink(&source_path).unwrap_or(false);
             let mut contents = {
@@ -59,7 +60,7 @@ impl UploadThread {
                     file.readlink(&source_path)
                 } else {
                     file.read_all(&source_path)
-                }.map_err(|_| Progress::Error(format!("Failed to read file: {}", filename)));
+                }.map_err(|_| Progress::Error(format!("Failed to read file: {}", filename.display())));
 
                 match maybe_contents {
                     Ok(contents) => contents,
@@ -76,7 +77,7 @@ impl UploadThread {
             contents.shrink_to_fit();
             if compressed.is_err() {
                 await!(tx_progress.send(Progress::Error(
-                                    format!("Failed to compress file: {}", filename))))?;
+                                    format!("Failed to compress file: {}", filename.display()))))?;
                 continue;
             }
             let mut compressed = compressed.unwrap();
@@ -94,13 +95,13 @@ impl UploadThread {
                                                file.mode, is_symlink);
 
             let err = await!(b2.upload_file(&filehash, progress_reader, Some(enc_meta))).map_err(|err| {
-                Progress::Error(format!("Failed to upload file \"{}\": {}", filename, err))
+                Progress::Error(format!("Failed to upload file \"{}\": {}", filename.display(), err))
             });
             if let Err(err) = err {
                 await!(tx_progress.send(err))?;
                 continue;
             }
-            await!(tx_progress.send(Progress::Transferred(file.path_str().into_owned())))?;
+            await!(tx_progress.send(Progress::Transferred(file.rel_path.display().to_string())))?;
         }
 
         await!(tx_progress.send(Progress::Terminated))?;

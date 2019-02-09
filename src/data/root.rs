@@ -19,7 +19,7 @@ use crate::termio::progress::ProgressDataReader;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BackupRoot {
-    pub path: String,
+    pub path: PathBuf,
     pub path_hash: String,
 
     #[serde(skip)]
@@ -27,7 +27,7 @@ pub struct BackupRoot {
 }
 
 impl BackupRoot {
-    fn new(path: &str, key: &crypto::Key) -> BackupRoot {
+    fn new(path: &Path, key: &crypto::Key) -> BackupRoot {
         BackupRoot {
             path: path.to_owned(),
             path_hash: crypto::hash_path(path, key),
@@ -35,20 +35,20 @@ impl BackupRoot {
         }
     }
 
-    pub fn rename(&mut self, new_path: &str) {
-        self.path = new_path.to_owned();
+    pub fn rename(&mut self, new_path: PathBuf) {
+        self.path = new_path;
     }
 
-    pub fn list_local_files_async(&self, b2: &b2::B2, path: &str)
+    pub fn list_local_files_async(&self, b2: &b2::B2, path: &Path)
                                      -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
         let (tx, rx) = channel();
         let key = b2.key.clone();
-        let path = PathBuf::from(path);
         if !path.is_dir() {
-            Err(From::from(format!("{} is not a folder!", &self.path)))
+            Err(From::from(format!("{} is not a folder!", &self.path.display())))
         } else {
+            let path = path.to_owned();
             let handle = thread::spawn(move || {
-                let _ = list_local_files(path.as_path(), path.as_path(), &key.clone(), &tx.clone());
+                let _ = list_local_files(&path, &path, &key.clone(), &tx.clone());
             });
             Ok((rx, handle))
         }
@@ -65,11 +65,11 @@ impl BackupRoot {
         Ok(files)
     }
 
-    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config, source_path: &str,) -> Vec<UploadThread> {
+    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config, source_path: &Path,) -> Vec<UploadThread> {
         (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config, source_path)).collect()
     }
 
-    pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &str) -> Vec<DownloadThread> {
+    pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &Path) -> Vec<DownloadThread> {
         (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
     }
 
@@ -135,7 +135,7 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
     -> Result<(), Box<Error>> {
     let entries = fs::read_dir(dir);
     if entries.is_err() {
-        println!("Couldn't open folder \"{}\": {}", (base.to_string_lossy()+dir.to_string_lossy()),
+        println!("Couldn't open folder \"{}\": {}", base.join(dir).display(),
                                                         entries.err().unwrap());
         return Ok(())
     }
@@ -170,7 +170,7 @@ pub async fn save_roots<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot]) -> Resul
 }
 
 /// Opens an existing backup root, or creates one if necessary
-pub async fn open_create_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+pub async fn open_create_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
                                   -> Result<BackupRoot, Box<dyn Error + 'static>> {
     let mut root: BackupRoot;
     if let Some(existing_root) = roots.iter_mut().find(|r| r.path == *path) {
@@ -185,33 +185,33 @@ pub async fn open_create_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupR
     Ok(root)
 }
 
-pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
                              -> Result<(), Box<dyn Error + 'static>> {
     if roots.iter()
         .position(|r| r.path == path)
         .map(|i| roots.remove(i))
         .is_none() {
-        Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path)))
+        Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path.display())))
     } else {
         await!(save_roots(b2, roots))
     }
 }
 
 /// Opens an existing backup root
-pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a str)
+pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
                            -> Result<BackupRoot, Box<dyn Error + 'static>> {
-    match roots.iter().find(|r| r.path == *path) {
+    match roots.iter().find(|r| r.path == path) {
         Some(root) => {
             let mut root = root.clone();
             await!(root.lock(b2))?;
             Ok(root)
         },
-        None => Err(From::from(format!("Backup does not exist for \"{}\"", path))),
+        None => Err(From::from(format!("Backup does not exist for \"{}\"", path.display()))),
     }
 }
 
 /// Forcibly unlocks a backup root
-pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'a str)
+pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'a Path)
                             -> Result<(), Box<dyn Error + 'static>> {
     if let Some(root) = roots.iter().find(|r| r.path == *path) {
         let lock_path_prefix = root.path_hash.to_owned() + ".lock.";
@@ -223,6 +223,6 @@ pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'
         }
         Ok(())
     } else {
-        Err(From::from(format!("Backup does not exist for \"{}\"", path)))
+        Err(From::from(format!("Backup does not exist for \"{}\"", path.display())))
     }
 }

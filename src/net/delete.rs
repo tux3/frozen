@@ -44,7 +44,7 @@ impl DeleteThread {
             }
             let file = file.unwrap();
 
-            await!(tx_progress.send(Progress::Started(file.rel_path.clone())))?;
+            await!(tx_progress.send(Progress::Started(file.rel_path.display().to_string())))?;
             await!(tx_progress.send(Progress::Deleting))?;
 
             let version = RemoteFileVersion{
@@ -53,7 +53,7 @@ impl DeleteThread {
             };
 
             let err = await!(b2.delete_file_version(&version)).map_err(|err| {
-                Progress::Error(format!("Failed to delete last version of \"{}\": {}", file.rel_path, err))
+                Progress::Error(format!("Failed to delete last version of \"{}\": {}", file.rel_path.display(), err))
             });
             if let Err(err) = err {
                 await!(tx_progress.send(err))?;
@@ -63,7 +63,7 @@ impl DeleteThread {
             let path = root.path_hash.clone()+"/"+&file.rel_path_hash;
             let _ = await!(b2.hide_file(&path));
 
-            await!(tx_progress.send(Progress::Deleted(file.rel_path.clone())))?;
+            await!(tx_progress.send(Progress::Deleted(file.rel_path.display().to_string())))?;
         }
 
         await!(tx_progress.send(Progress::Terminated))?;

@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::fs;
-use std::path::Path;
 use std::time::Duration;
 use std::sync::{Arc, atomic::AtomicBool};
 use clap::ArgMatches;
@@ -9,16 +7,17 @@ use tokio::await;
 use crate::config::Config;
 use crate::data::root::{self, BackupRoot};
 use crate::data::file::RemoteFile;
+use crate::data::paths::path_from_arg;
 use crate::net::b2;
 use crate::termio::progress;
 use crate::signal::*;
 
 pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = args.value_of("source").unwrap();
-    if !Path::new(&path).is_dir() {
-        return Err(From::from(format!("{} is not a folder!", &path)))
+    let path = path_from_arg(args, "source")?;
+    if !path.is_dir() {
+        return Err(From::from(format!("{} is not a folder!", &path.display())))
     }
-    let target = fs::canonicalize(args.value_of("destination").unwrap_or(&path))?.to_string_lossy().into_owned();
+    let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
 
     let keys = config.get_app_keys()?;
 
@@ -30,7 +29,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     let signal_flag = setup_signal_flag();
 
-    println!("Opening backup folder {}", target);
+    println!("Opening backup folder {}", target.display());
     let root = await!(root::open_create_root(b2, &mut roots, &target))?;
 
     println!("Starting to list local files");
@@ -42,7 +41,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     err_on_signal(&signal_flag)?;
 
     println!("Starting upload");
-    let mut upload_threads = root.start_upload_threads(b2, config, path);
+    let mut upload_threads = root.start_upload_threads(b2, config, &path);
 
     progress::start_output(upload_threads.len());
 

@@ -1,5 +1,6 @@
 use std::str;
 use std::error::Error;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::thread::sleep;
 use futures::channel::mpsc::Sender;
@@ -350,7 +351,7 @@ impl B2 {
         } else {
             let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
             let mode = 0o644;
-            encode_meta(&self.key, &filename, last_modified, mode, false)
+            encode_meta(&self.key, Path::new(filename), last_modified, mode, false)
         };
 
         let (status, body) = await!(self.request_with_backoff(|| {

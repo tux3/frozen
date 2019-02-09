@@ -15,7 +15,7 @@ pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<(
 
     println!("Backed-up folders:");
     for root in roots {
-        println!("{}\t{}", root.path_hash, root.path);
+        println!("{}\t{}", root.path_hash, root.path.display());
     }
 
     Ok(())

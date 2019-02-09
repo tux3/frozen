@@ -6,13 +6,13 @@ use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
 use crate::config::Config;
-use crate::data::root;
+use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
 use crate::termio::progress;
 use crate::signal::*;
 
 pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = args.value_of("target").unwrap().to_owned();
+    let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
@@ -21,7 +21,7 @@ pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(&b2))?;
 
-    println!("Deleting backup folder {}", path);
+    println!("Deleting backup folder {}", path.display());
 
     let signal_flag = setup_signal_flag();
 
