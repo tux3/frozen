@@ -35,6 +35,10 @@ impl BackupRoot {
         }
     }
 
+    pub fn rename(&mut self, new_path: &str) {
+        self.path = new_path.to_owned();
+    }
+
     pub fn list_local_files_async(&self, b2: &b2::B2, path: &str)
                                      -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
         let (tx, rx) = channel();

@@ -7,4 +7,4 @@ macro_rules! cmd_modules {
     };
 }
 
-cmd_modules!(backup, restore, list, delete, unlock);
+cmd_modules!(backup, restore, list, delete, unlock, rename);

@@ -66,6 +66,17 @@ fn main() {
                 .required(true)
                 .index(1))
         )
+        .subcommand(SubCommand::with_name("rename")
+            .about("Rename a backed-up folder on the server.")
+            .arg(Arg::with_name("source")
+                .help("Source path of the folder to rename")
+                .required(true)
+                .index(1))
+            .arg(Arg::with_name("target")
+                .help("New path of the backup")
+                .required(true)
+                .index(2))
+        )
         .get_matches();
 
     let config = Config::get_or_create(args.is_present("verbose"));
@@ -78,6 +89,7 @@ fn main() {
             ("delete", Some(sub_args)) => await!(cmd::delete(&config, sub_args)),
             ("unlock", Some(sub_args)) => await!(cmd::unlock(&config, sub_args)),
             ("list", Some(sub_args)) => await!(cmd::list(&config, sub_args)),
+            ("rename", Some(sub_args)) => await!(cmd::rename(&config, sub_args)),
             _ => help_and_die(&args),
         }.unwrap_or_else(|err| {
             println!("\r{} failed: {}", args.subcommand_name().unwrap(), err);
