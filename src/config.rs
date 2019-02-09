@@ -4,7 +4,7 @@ use std::env;
 use std::error::Error;
 use serde::{Serialize, Deserialize};
 use serde_json;
-use crate::util::*;
+use crate::termio::{prompt, prompt_password, prompt_yes_no};
 use crate::crypto::{AppKeys, derive_key, decrypt, encrypt};
 
 static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";

@@ -8,12 +8,11 @@ use tokio::await;
 mod cmd;
 mod config;
 mod net;
-mod util;
+mod termio;
+mod futures_compat;
+mod signal;
 mod crypto;
 mod data;
-mod progress;
-mod vt100;
-mod futures_compat;
 
 fn help_and_die(args: &ArgMatches) -> ! {
     println!("{}", args.usage());
@@ -72,7 +71,7 @@ fn main() {
     let config = Config::get_or_create(args.is_present("verbose"));
 
     let mut return_code = 0;
-    crate::futures_compat::tokio_run(async move {
+    crate::futures_compat::tokio_run_compat(async move {
         match args.subcommand() {
             ("backup", Some(sub_args)) => await!(cmd::backup(&config, sub_args)),
             ("restore", Some(sub_args)) => await!(cmd::restore(&config, sub_args)),

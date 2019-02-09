@@ -7,7 +7,7 @@ use crate::data::root::BackupRoot;
 use crate::net::{b2, progress_thread};
 use crate::config::Config;
 use crate::crypto;
-use crate::progress::{Progress, ProgressDataReader};
+use crate::termio::progress::{Progress, ProgressDataReader};
 
 pub struct UploadThread {
     pub tx: Sender<Option<LocalFile>>,
@@ -31,7 +31,7 @@ impl UploadThread {
         b2.upload = None;
         b2.tx_progress = Some(tx_progress.clone());
 
-        crate::futures_compat::tokio_spawn(async {
+        crate::futures_compat::tokio_spawn_compat(async {
             let _ = await!(UploadThread::upload(root, b2, config, source_path, rx_file, tx_progress));
         });
 

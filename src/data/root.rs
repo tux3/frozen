@@ -15,7 +15,7 @@ use crate::net::upload::UploadThread;
 use crate::net::download::DownloadThread;
 use crate::net::delete::DeleteThread;
 use crate::config::Config;
-use crate::progress::ProgressDataReader;
+use crate::termio::progress::ProgressDataReader;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BackupRoot {
@@ -120,7 +120,7 @@ impl BackupRoot {
 impl Drop for BackupRoot {
     fn drop(&mut self) {
         if let Some((version, b2)) = self.release_lock() {
-            crate::futures_compat::tokio_spawn(async {
+            crate::futures_compat::tokio_spawn_compat(async {
                 let _ = await!(BackupRoot::unlock_impl(version, b2));
             });
         }

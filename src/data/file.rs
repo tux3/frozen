@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::error::Error;
+use std::time::UNIX_EPOCH;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use crate::crypto;
-use crate::util;
 
 #[derive(Clone)]
 pub struct LocalFile {
@@ -40,7 +40,7 @@ impl LocalFile {
             rel_path_hash: crypto::hash_path(&rel_path.to_string_lossy().to_string(), key),
             rel_path,
             mode: meta.permissions().mode(),
-            last_modified: util::to_timestamp(meta.modified()?),
+            last_modified: meta.modified()?.duration_since(UNIX_EPOCH).unwrap().as_secs(),
         })
     }
 

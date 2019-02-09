@@ -3,7 +3,7 @@ use futures::FutureExt;
 use std::future::Future;
 
 /// Replacement for tokio::run compatible with futures 0.3
-pub fn tokio_run<F: Future<Output=()> + Send + 'static>(future: F) {
+pub fn tokio_run_compat<F: Future<Output=()> + Send + 'static>(future: F) {
     tokio::run(Compat::new(Box::pin(
         future.map(|()| -> Result<(), ()> { Ok(()) })
     )));
@@ -11,7 +11,7 @@ pub fn tokio_run<F: Future<Output=()> + Send + 'static>(future: F) {
 }
 
 /// Replacement for tokio::spawn compatible with futures 0.3
-pub fn tokio_spawn<F: Future<Output=()> + Send + 'static>(future: F) {
+pub fn tokio_spawn_compat<F: Future<Output=()> + Send + 'static>(future: F) {
     tokio::spawn(Compat::new(Box::pin(
         future.map(|()| -> Result<(), ()> { Ok(()) })
     )));

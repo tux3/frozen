@@ -4,7 +4,7 @@ use futures::{stream::StreamExt, sink::SinkExt};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::data::root::BackupRoot;
 use crate::net::{b2, progress_thread};
-use crate::progress::Progress;
+use crate::termio::progress::Progress;
 
 pub struct DeleteThread {
     pub tx: Sender<Option<RemoteFile>>,
@@ -25,7 +25,7 @@ impl DeleteThread {
         let mut b2 = b2.to_owned();
         b2.tx_progress = Some(tx_progress.clone());
 
-        crate::futures_compat::tokio_spawn(async {
+        crate::futures_compat::tokio_spawn_compat(async {
             let _ = await!(DeleteThread::delete(root, b2, rx_file, tx_progress));
         });
 

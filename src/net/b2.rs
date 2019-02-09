@@ -15,7 +15,7 @@ use tokio::await;
 use crate::crypto::{self, AppKeys, encode_meta, decode_meta};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
-use crate::progress::{ProgressDataReader, Progress};
+use crate::termio::progress::{ProgressDataReader, Progress};
 
 #[derive(Clone, PartialEq)]
 pub struct B2Upload {

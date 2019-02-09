@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures_old::{Async, stream::Stream};
 use hyper::Chunk;
 use crate::net::progress_thread;
-use crate::vt100::*;
+use super::vt100::*;
 
 #[derive(Debug)]
 pub enum Progress {
