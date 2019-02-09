@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -13,8 +12,7 @@ use crate::termio::progress;
 use crate::signal::*;
 
 pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
-    let path = fs::canonicalize(args.value_of("target").unwrap())?.to_string_lossy().into_owned();
-
+    let path = args.value_of("target").unwrap().to_owned();
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
