@@ -155,11 +155,10 @@ pub fn flush() {
 
 /// Receives and displays progress information. Removes dead threads from the list.
 pub async fn handle_progress<T: progress_thread::ProgressThread>(verbose: bool, threads: &mut Vec<T>) {
-    let mut num_threads = threads.len();
-    let mut thread_id = 0;
-    while thread_id < num_threads {
+    for thread_id in (0..threads.len()).rev() {
         let mut delete_later = false;
         {
+            let num_threads = threads.len();
             let thread = &mut threads[thread_id];
             loop {
                 let progress = match thread.progress_rx().try_next() {
@@ -176,10 +175,7 @@ pub async fn handle_progress<T: progress_thread::ProgressThread>(verbose: bool, 
         }
         if delete_later {
             threads.remove(thread_id);
-            num_threads -= 1;
         }
-
-        thread_id += 1;
     }
     flush();
 }

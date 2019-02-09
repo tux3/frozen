@@ -30,7 +30,7 @@ impl Display for VT100 {
 }
 
 pub fn remove_at(offset: usize) {
-    print!("{}{}{}", VT100::MoveUp(offset), VT100::RemoveLine, VT100::MoveDown(offset-1));
+    print!("{}{}{}\r", VT100::MoveUp(offset), VT100::RemoveLine, VT100::MoveDown(offset-1));
 }
 
 pub fn insert_at(offset: usize, style: VT100, str: &str) {
