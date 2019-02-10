@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use clap::ArgMatches;
 use futures_timer::Delay;
@@ -23,18 +21,16 @@ pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     println!("Deleting backup folder {}", path.display());
 
-    let signal_flag = setup_signal_flag();
-
     let root = await!(root::open_root(&b2, &mut roots, &path))?;
-    await!(delete_files(config, &mut b2, &root, signal_flag))?;
+    await!(delete_files(config, &mut b2, &root))?;
 
     await!(root::delete_root(&mut b2, &mut roots, &path))
 }
 
 async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
-                root: &'a root::BackupRoot, signal_flag: Arc<AtomicBool>)
+                root: &'a root::BackupRoot)
         -> Result<(), Box<dyn Error + 'static>> {
-    err_on_signal(&signal_flag)?;
+    err_on_signal()?;
 
     println!("Listing remote files");
     let rfiles = await!(root.list_remote_files(b2))?;
@@ -50,18 +46,18 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
                     break 'delete_send;
                 }
             }
-            err_on_signal(&signal_flag)?;
+            err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut delete_threads));
             await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
     }
 
     // Tell our delete threads to stop as they become idle
     let mut thread_id = delete_threads.len() - 1;
     loop {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         if thread_id < delete_threads.len() {
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -79,7 +75,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
     }
 
     while !delete_threads.is_empty() {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }

@@ -20,6 +20,8 @@ fn help_and_die(args: &ArgMatches) -> ! {
 }
 
 fn main() {
+    signal::setup_signal_handler();
+
     let args = App::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
         .arg(Arg::with_name("verbose")

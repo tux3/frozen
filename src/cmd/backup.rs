@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::time::Duration;
-use std::sync::{Arc, atomic::AtomicBool};
 use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
@@ -27,18 +26,16 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(b2))?;
 
-    let signal_flag = setup_signal_flag();
-
     println!("Opening backup folder {}", target.display());
     let root = await!(root::open_create_root(b2, &mut roots, &target))?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async(b2, &path)?;
-    err_on_signal(&signal_flag)?;
+    err_on_signal()?;
 
     println!("Listing remote files");
     let mut rfiles = await!(root.list_remote_files(b2))?;
-    err_on_signal(&signal_flag)?;
+    err_on_signal()?;
 
     println!("Starting upload");
     let mut upload_threads = root.start_upload_threads(b2, config, &path);
@@ -55,10 +52,10 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
                     }
                 }
                 await!(progress::handle_progress(config.verbose, &mut upload_threads));
-                err_on_signal(&signal_flag)?;
+                err_on_signal()?;
                 await!(Delay::new(Duration::from_millis(20))).is_ok();
             }
-            err_on_signal(&signal_flag)?;
+            err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut upload_threads));
         }
         if let Ok(rfile) = rfile {
@@ -69,7 +66,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     // Tell our threads to stop as they become idle
     let mut thread_id = upload_threads.len() - 1;
     loop {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         if thread_id < upload_threads.len() {
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -87,14 +84,14 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     }
 
     while !upload_threads.is_empty() {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut upload_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
     list_thread.join().unwrap();
 
     if !args.is_present("keep-existing") {
-        await!(delete_dead_remote_files(config, b2, root, rfiles, signal_flag))?;
+        await!(delete_dead_remote_files(config, b2, root, rfiles))?;
     }
 
     Ok(())
@@ -102,8 +99,7 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
 /// Delete remote files that were removed locally
 async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
-                                      root: BackupRoot, rfiles: Vec<RemoteFile>,
-                                      signal_flag: Arc<AtomicBool>) -> Result<(), Box<dyn Error + 'static>> {
+                                      root: BackupRoot, rfiles: Vec<RemoteFile>) -> Result<(), Box<dyn Error + 'static>> {
     let mut delete_threads = root.start_delete_threads(b2, config);
     progress::start_output(delete_threads.len());
 
@@ -114,18 +110,18 @@ async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
                     break 'delete_send;
                 }
             }
-            err_on_signal(&signal_flag)?;
+            err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut delete_threads));
             await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
     }
 
     // Tell our delete threads to stop as they become idle
     let mut thread_id = delete_threads.len() - 1;
     loop {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         if thread_id < delete_threads.len() {
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -143,7 +139,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
     }
 
     while !delete_threads.is_empty() {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }

@@ -23,18 +23,16 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     println!("Downloading backup metadata");
     let mut roots = await!(root::fetch_roots(&b2))?;
 
-    let signal_flag = setup_signal_flag();
-
     println!("Opening backup folder {}", path.display());
     let root = await!(root::open_root(&b2, &mut roots, &path))?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, &target)?;
-    err_on_signal(&signal_flag)?;
+    err_on_signal()?;
 
     println!("Listing remote files");
     let mut rfiles = await!(root.list_remote_files(&b2))?;
-    err_on_signal(&signal_flag)?;
+    err_on_signal()?;
 
     println!("Starting download");
     let mut download_threads = root.start_download_threads(&b2, config, &target);
@@ -46,7 +44,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
         if rfile.is_ok() && rfiles[rfile.unwrap()].last_modified <= file.last_modified {
             rfiles.remove(rfile.unwrap());
         }
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
     }
 
     for rfile in rfiles {
@@ -56,18 +54,18 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
                     break 'send;
                 }
             }
-            err_on_signal(&signal_flag)?;
+            err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut download_threads));
             await!(Delay::new(Duration::from_millis(20))).is_ok();
         }
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut download_threads));
     }
 
     // Tell our threads to stop as they become idle
     let mut thread_id = download_threads.len() - 1;
     loop {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
@@ -85,7 +83,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     }
 
     while !download_threads.is_empty() {
-        err_on_signal(&signal_flag)?;
+        err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut download_threads));
         await!(Delay::new(Duration::from_millis(20))).is_ok();
     }
