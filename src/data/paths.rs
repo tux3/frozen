@@ -1,5 +1,8 @@
 use std::error::Error;
 use std::path::{Path, PathBuf, Component};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use clap::ArgMatches;
 
 fn remove_relative_components(path: &Path) -> Result<PathBuf, Box<dyn Error>> {
@@ -49,6 +52,18 @@ pub fn path_from_arg(args: &ArgMatches<'_>, name: &str) -> Result<PathBuf, Box<d
     }
 }
 
+#[cfg(unix)]
+pub fn path_to_bytes(path: &Path) -> Result<&[u8], Box<dyn Error>> {
+    let os_str = path.as_os_str();
+    Ok(os_str.as_bytes())
+}
+
+#[cfg(unix)]
+pub fn path_from_bytes(bytes: &[u8]) -> Result<&Path, Box<dyn Error>> {
+    let os_str = OsStr::from_bytes(bytes);
+    Ok(Path::new(os_str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +87,16 @@ mod tests {
             let result_path = to_semi_canonical_path_from(&Path::new(relative), base_path)?;
             assert_eq!(result_path.to_string_lossy(), *absolute);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn path_bytes_roundtrip() -> Result<(), Box<dyn Error>> {
+        let path = Path::new("/some/ÚTF-8/path\\somewhere 😁");
+        let to_bytes = path_to_bytes(path)?;
+        let from_bytes = path_from_bytes(to_bytes)?;
+        assert_eq!(path, from_bytes);
+        assert_eq!(to_bytes, path_to_bytes(from_bytes)?);
         Ok(())
     }
 }

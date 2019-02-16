@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::SystemTime;
 use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
-use bincode::serialize;
+use crate::data::paths::path_to_bytes;
 
 #[derive(Default, Debug)]
 pub struct DirStat {
@@ -47,11 +47,11 @@ impl DirStat {
             }
         }
 
-        let dir_name = serialize(dir_path.file_name().unwrap())?;
+        let dir_name = path_to_bytes(Path::new(dir_path.file_name().unwrap()))?;
         let mut result = Self {
             total_files_count,
             subfolders,
-            dir_name: RefCell::new(Some(dir_name.clone())),
+            dir_name: RefCell::new(Some(dir_name.to_owned())),
             ..Default::default()
         };
         crate::crypto::raw_hash(&dir_name, 8, &mut result.dir_name_hash)?;
