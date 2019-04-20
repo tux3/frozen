@@ -4,6 +4,7 @@ use std::time::Duration;
 use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
+use ignore_result::Ignore;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
@@ -56,7 +57,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
             }
             err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut download_threads));
-            await!(Delay::new(Duration::from_millis(20))).is_ok();
+            await!(Delay::new(Duration::from_millis(20))).ignore();
         }
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut download_threads));
@@ -70,7 +71,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 await!(progress::handle_progress(config.verbose, &mut download_threads));
-                await!(Delay::new(Duration::from_millis(20))).is_ok();
+                await!(Delay::new(Duration::from_millis(20))).ignore();
                 continue;
             }
         }
@@ -85,7 +86,7 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     while !download_threads.is_empty() {
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut download_threads));
-        await!(Delay::new(Duration::from_millis(20))).is_ok();
+        await!(Delay::new(Duration::from_millis(20))).ignore();
     }
     list_thread.join().unwrap();
 

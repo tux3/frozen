@@ -5,6 +5,7 @@ use std::sync::mpsc::Receiver;
 use clap::ArgMatches;
 use futures_timer::Delay;
 use tokio::await;
+use ignore_result::Ignore;
 use crate::config::Config;
 use crate::data::root::{self, BackupRoot};
 use crate::data::file::{LocalFile, RemoteFile};
@@ -76,7 +77,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config,
             }
             err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut delete_threads));
-            await!(Delay::new(Duration::from_millis(20))).is_ok();
+            await!(Delay::new(Duration::from_millis(20))).ignore();
         }
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
@@ -90,7 +91,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config,
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 await!(progress::handle_progress(config.verbose, &mut delete_threads));
-                await!(Delay::new(Duration::from_millis(20))).is_ok();
+                await!(Delay::new(Duration::from_millis(20))).ignore();
                 continue;
             }
         }
@@ -105,7 +106,7 @@ async fn delete_dead_remote_files<'a>(config: &'a Config,
     while !delete_threads.is_empty() {
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut delete_threads));
-        await!(Delay::new(Duration::from_millis(20))).is_ok();
+        await!(Delay::new(Duration::from_millis(20))).ignore();
     }
 
     Ok(())
@@ -131,7 +132,7 @@ async fn upload_updated_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
                 }
                 await!(progress::handle_progress(config.verbose, &mut upload_threads));
                 err_on_signal()?;
-                await!(Delay::new(Duration::from_millis(20))).is_ok();
+                await!(Delay::new(Duration::from_millis(20))).ignore();
             }
             err_on_signal()?;
             await!(progress::handle_progress(config.verbose, &mut upload_threads));
@@ -149,7 +150,7 @@ async fn upload_updated_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
             let result = &upload_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 await!(progress::handle_progress(config.verbose, &mut upload_threads));
-                await!(Delay::new(Duration::from_millis(20))).is_ok();
+                await!(Delay::new(Duration::from_millis(20))).ignore();
                 continue;
             }
         }
@@ -164,7 +165,7 @@ async fn upload_updated_files<'a>(config: &'a Config, b2: &'a mut b2::B2,
     while !upload_threads.is_empty() {
         err_on_signal()?;
         await!(progress::handle_progress(config.verbose, &mut upload_threads));
-        await!(Delay::new(Duration::from_millis(20))).is_ok();
+        await!(Delay::new(Duration::from_millis(20))).ignore();
     }
 
     Ok(())

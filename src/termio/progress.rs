@@ -6,6 +6,7 @@ use pretty_bytes::converter::convert;
 use bytes::Bytes;
 use futures_old::{Async, stream::Stream};
 use hyper::Chunk;
+use ignore_result::Ignore;
 use crate::net::progress_thread;
 use super::vt100::*;
 
@@ -77,7 +78,7 @@ impl Stream for ProgressDataReader {
 
         if self.tx_progress.is_some() {
             let progress = Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64);
-            self.tx_progress.as_mut().unwrap().try_send(progress).is_ok();
+            self.tx_progress.as_mut().unwrap().try_send(progress).ignore();
         }
 
         Ok(Async::Ready(Some(chunk_slice.into())))
