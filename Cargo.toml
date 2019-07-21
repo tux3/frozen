@@ -6,13 +6,12 @@ edition = "2018"
 publish = false
 
 [dependencies]
-tokio = {version = "0.1", features = ["async-await-preview"]}
-hyper = "0.12"
-hyper-rustls = "0.15"
+tokio = {git = "https://github.com/tokio-rs/tokio"}
+hyper = {git = "https://github.com/hyperium/hyper"}
+hyper-tls = {git = "https://github.com/95th/hyper-tls"}
 bytes = "0.4"
-futures-old = { package = "futures", version = "0.1" }
-futures-preview = { version = "0.3.0-alpha", features = ["compat"] }
-futures-timer = "0.1"
+futures-preview = { version = "0.3.0-alpha", features = ["compat", "async-await", "nightly"] }
+futures-timer = "0.2"
 bincode = "1.0"
 sodiumoxide = "0.2"
 libsodium-sys = "0.2"

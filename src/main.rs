@@ -1,15 +1,13 @@
-#![feature(await_macro, async_await, futures_api)]
+#![feature(await_macro, async_await)]
 
 use crate::config::Config;
 use clap::{Arg, App, SubCommand, ArgMatches};
 use std::process::exit;
-use tokio::await;
 
 mod cmd;
 mod config;
 mod net;
 mod termio;
-mod futures_compat;
 mod signal;
 mod crypto;
 mod data;
@@ -20,7 +18,8 @@ fn help_and_die(args: &ArgMatches) -> ! {
     exit(1);
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     signal::setup_signal_handler();
 
     let args = App::new("Frozen Backup")
@@ -85,21 +84,21 @@ fn main() {
     let config = Config::get_or_create(args.is_present("verbose"));
 
     let mut return_code = 0;
-    crate::futures_compat::tokio_run_compat(async move {
-        match args.subcommand() {
-            ("backup", Some(sub_args)) => await!(cmd::backup(&config, sub_args)),
-            ("restore", Some(sub_args)) => await!(cmd::restore(&config, sub_args)),
-            ("delete", Some(sub_args)) => await!(cmd::delete(&config, sub_args)),
-            ("unlock", Some(sub_args)) => await!(cmd::unlock(&config, sub_args)),
-            ("list", Some(sub_args)) => await!(cmd::list(&config, sub_args)),
-            ("rename", Some(sub_args)) => await!(cmd::rename(&config, sub_args)),
-            _ => help_and_die(&args),
-        }.unwrap_or_else(|err| {
-            println!("\r{} failed: {}", args.subcommand_name().unwrap(), err);
-            // Note that we can't exit here, we must let any pending spawned futures finish first.
-            return_code = 1;
-        });
+    match args.subcommand() {
+        ("backup", Some(sub_args)) => cmd::backup(&config, sub_args).await,
+        ("restore", Some(sub_args)) => cmd::restore(&config, sub_args).await,
+        ("delete", Some(sub_args)) => cmd::delete(&config, sub_args).await,
+        ("unlock", Some(sub_args)) => cmd::unlock(&config, sub_args).await,
+        ("list", Some(sub_args)) => cmd::list(&config, sub_args).await,
+        ("rename", Some(sub_args)) => cmd::rename(&config, sub_args).await,
+        _ => help_and_die(&args),
+    }.unwrap_or_else(|err| {
+        println!("\r{} failed: {}", args.subcommand_name().unwrap(), err);
+        // Note that we can't exit here, we must let any pending spawned futures finish first.
+        return_code = 1;
     });
+
+    // TODO: Find a way to wait for any spawned futures before we exit. Push them in a global Q? Give them to a thread we can join? Use a tokio wait function?
 
     exit(return_code);
 }

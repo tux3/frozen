@@ -5,14 +5,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::thread::sleep;
 use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
+use futures::stream::{Stream, TryStreamExt};
 use hyper::{Request, Body, Chunk, StatusCode};
 use hyper::client::{HttpConnector, Client};
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE, CONTENT_LENGTH, CONNECTION};
-use hyper::rt::Stream;
-use hyper_rustls::HttpsConnector;
+use hyper_tls::HttpsConnector;
 use serde_json::{self, Value};
 use data_encoding::BASE64_NOPAD;
-use tokio::await;
 use crate::crypto::{self, AppKeys, encode_meta, decode_meta};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
@@ -69,7 +68,7 @@ fn make_basic_auth(AppKeys{b2_key_id: username, b2_key: password, ..}: &AppKeys)
 }
 
 fn make_client() -> Client<HttpsConnector<HttpConnector>> {
-    let https = HttpsConnector::new(4);
+    let https = HttpsConnector::new(4).unwrap();
     Client::builder().build::<_, hyper::Body>(https)
 }
 
@@ -95,7 +94,7 @@ impl B2 {
                 },
             };
             let status = res.status();
-            let body = await!(res.into_body().concat2())?;
+            let body = await!(res.into_body().try_concat())?;
 
             // Temporary failure is not an error, just asking for an exponential backoff
             if status.as_u16() == 503 || status.as_u16() == 408 {
@@ -120,7 +119,7 @@ impl B2 {
 
         let res = await!(client.request(req))?;
         let status = res.status();
-        let body = await!(res.into_body().concat2())?;
+        let body = await!(res.into_body().try_concat())?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => return Err(From::from(format!("authenticate failed to parse json: {}",
@@ -297,7 +296,7 @@ impl B2 {
         Ok(files)
     }
 
-    async fn get_upload_url(&self) -> Result<B2Upload, Box<Error>> {
+    async fn get_upload_url(&self) -> Result<B2Upload, Box<dyn Error>> {
         let (status, body) = await!(self.request_with_backoff(||
             Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
                 .header(AUTHORIZATION, self.auth_token.clone())
@@ -341,7 +340,7 @@ impl B2 {
 
     pub async fn upload_file<'a>(&'a mut self, filename: &'a str,
                              data: ProgressDataReader,
-                             enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<Error + 'static>> {
+                             enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
         if self.upload.is_none() {
             self.upload = Some(await!(self.get_upload_url())?);
         }
@@ -355,7 +354,7 @@ impl B2 {
         };
 
         let (status, body) = await!(self.request_with_backoff(|| {
-            let data_stream = Box::new(data.clone()) as Box<dyn Stream<Error=Box<(dyn std::error::Error + Sync + Send + 'static)>, Item=Chunk> + Send + 'static>;
+            let data_stream = Box::new(data.clone()) as Box<dyn Stream<Item=Result<Chunk, Box<(dyn std::error::Error + Sync + Send + 'static)>>> + Send + Sync + 'static>;
             let sha1 = crypto::sha1_string(data.as_slice());
             Request::post(&self.upload.as_ref().unwrap().url)
                 .header(AUTHORIZATION, self.upload.as_ref().unwrap().auth_token.clone())

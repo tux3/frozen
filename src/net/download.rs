@@ -31,7 +31,7 @@ impl DownloadThread {
         let (tx_progress, rx_progress) = channel(16);
         let mut b2: b2::B2 = b2.to_owned();
         b2.tx_progress = Some(tx_progress.clone());
-        crate::futures_compat::tokio_spawn_compat(async {
+        tokio::spawn(async {
             let _ = await!(DownloadThread::download(root, b2, target, rx_file, tx_progress));
         });
 

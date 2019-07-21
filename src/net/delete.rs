@@ -25,7 +25,7 @@ impl DeleteThread {
         let mut b2 = b2.to_owned();
         b2.tx_progress = Some(tx_progress.clone());
 
-        crate::futures_compat::tokio_spawn_compat(async {
+        tokio::spawn(async {
             let _ = await!(DeleteThread::delete(root, b2, rx_file, tx_progress));
         });
 

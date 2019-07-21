@@ -3,7 +3,6 @@ use std::fs;
 use std::time::Duration;
 use clap::ArgMatches;
 use futures_timer::Delay;
-use tokio::await;
 use ignore_result::Ignore;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};

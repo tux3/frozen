@@ -110,7 +110,7 @@ impl Config {
         })
     }
 
-    fn save(&self) -> Result<(), Box<Error>> {
+    fn save(&self) -> Result<(), Box<dyn Error>> {
         let mut file = File::create(Self::get_file_path())?;
         let config_file = ConfigFile{
             acc_id: self.acc_id.clone(),

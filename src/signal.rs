@@ -13,7 +13,7 @@ pub fn caught_signal() -> bool {
     SIGNAL_FLAG.load(Ordering::Acquire)
 }
 
-pub fn err_on_signal() -> Result<(), Box<Error>> {
+pub fn err_on_signal() -> Result<(), Box<dyn Error>> {
     if caught_signal() {
         Err(From::from("Interrupted by signal"))
     } else {

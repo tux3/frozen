@@ -1,14 +1,17 @@
 use std::vec::Vec;
-use std::io::{stdout, Write, Read, Error, ErrorKind};
+use std::io::{self, stdout, Write, Read, ErrorKind};
+use std::error::Error;
 use std::cmp;
 use futures::channel::mpsc::Sender;
 use pretty_bytes::converter::convert;
 use bytes::Bytes;
-use futures_old::{Async, stream::Stream};
+use futures::{stream::Stream, Poll};
 use hyper::Chunk;
 use ignore_result::Ignore;
 use crate::net::progress_thread;
 use super::vt100::*;
+use std::pin::Pin;
+use futures::task::Context;
 
 #[derive(Debug)]
 pub enum Progress {
@@ -65,10 +68,9 @@ impl Clone for ProgressDataReader {
 }
 
 impl Stream for ProgressDataReader {
-    type Item = Chunk;
-    type Error = Box<std::error::Error + Sync + Send + 'static>;
+    type Item = Result<Chunk, Box<dyn Error + Sync + Send + 'static>>;
 
-    fn poll(&mut self) -> Result<Async<Option<<Self as Stream>::Item>>, <Self as Stream>::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>,) -> Poll<Option<Self::Item>> {
         let chunk_size = clamp::clamp(DATA_READER_MIN_CHUNK_SIZE,
                                       self.data.len() / 200,
                                       DATA_READER_MAX_CHUNK_SIZE);
@@ -81,12 +83,12 @@ impl Stream for ProgressDataReader {
             self.tx_progress.as_mut().unwrap().try_send(progress).ignore();
         }
 
-        Ok(Async::Ready(Some(chunk_slice.into())))
+        Poll::Ready(Some(Ok(chunk_slice.into())))
     }
 }
 
 impl Read for ProgressDataReader {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
         let read_size = cmp::min(buf.len(), self.len()-self.pos);
         let (_, remaining) = self.data.split_at(self.pos);
         let (target, _) = remaining.split_at(read_size);
@@ -96,7 +98,7 @@ impl Read for ProgressDataReader {
         if self.tx_progress.is_some() {
             let progress = Progress::Uploading((self.pos * 100 / self.len()) as u8, self.len() as u64);
             if self.tx_progress.as_mut().unwrap().try_send(progress).is_err() {
-                return Err(Error::new(ErrorKind::Other, "Receiving thread seems gone"));
+                return Err(io::Error::new(ErrorKind::Other, "Receiving thread seems gone"));
             }
         }
         Ok(read_size)

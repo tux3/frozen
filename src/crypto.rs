@@ -51,7 +51,7 @@ pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
     cipher
 }
 
-pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<Error>> {
+pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<dyn Error>> {
     if cipher.len() < secretbox::NONCEBYTES {
         return Err(From::from("Decryption failed, input too small"));
     }
@@ -99,7 +99,7 @@ pub fn encode_meta(key: &Key, filename: &Path, time: u64, mode: u32, is_symlink:
     BASE64URL_NOPAD.encode(&encrypt(&encoded, key))
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(PathBuf, u64, u32, bool), Box<Error>> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(PathBuf, u64, u32, bool), Box<dyn Error>> {
     let data = BASE64URL_NOPAD.decode(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)

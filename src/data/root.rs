@@ -40,7 +40,7 @@ impl BackupRoot {
     }
 
     pub fn list_local_files_async(&self, b2: &b2::B2, path: &Path)
-                                     -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<Error>> {
+                                     -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<dyn Error>> {
         let (tx, rx) = channel();
         let key = b2.key.clone();
         if !path.is_dir() {
@@ -124,7 +124,7 @@ impl BackupRoot {
 impl Drop for BackupRoot {
     fn drop(&mut self) {
         if let Some((version, b2)) = self.release_lock() {
-            crate::futures_compat::tokio_spawn_compat(async {
+            tokio::spawn(async {
                 let _ = await!(BackupRoot::unlock_impl(version, b2));
             });
         }
@@ -132,7 +132,7 @@ impl Drop for BackupRoot {
 }
 
 fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>)
-    -> Result<(), Box<Error>> {
+    -> Result<(), Box<dyn Error>> {
     let entries = fs::read_dir(dir);
     if entries.is_err() {
         println!("Couldn't open folder \"{}\": {}", base.join(dir).display(),
