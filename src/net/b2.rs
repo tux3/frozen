@@ -29,7 +29,7 @@ pub struct B2 {
     pub acc_id: String,
     pub auth_token: String,
     pub api_url: String,
-    pub download_url: String,
+    pub bucket_download_url: String,
     pub upload: Option<B2Upload>,
     pub client: Client<HttpsConnector<HttpConnector>>,
     pub tx_progress: Option<Sender<Progress>>,
@@ -43,7 +43,7 @@ impl Clone for B2 {
             acc_id: self.acc_id.clone(),
             auth_token: self.auth_token.clone(),
             api_url: self.api_url.clone(),
-            download_url: self.download_url.clone(),
+            bucket_download_url: self.bucket_download_url.clone(),
             upload: self.upload.clone(),
             client: make_client(),
             tx_progress: None,
@@ -135,13 +135,15 @@ impl B2 {
             return Err(From::from(err_msg));
         }
 
+        let bucket_download_url = reply_json["downloadUrl"].as_str().unwrap().to_string() + "/file/" + &config.bucket_name + "/";
+
         let mut b2 = B2 {
             key: keys.encryption_key.clone(),
             acc_id: reply_json["accountId"].as_str().unwrap().to_string(),
             auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
             bucket_id: String::new(),
             api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
-            download_url: reply_json["downloadUrl"].as_str().unwrap().to_string(),
+            bucket_download_url,
             upload: None,
             tx_progress: None,
             client,
@@ -341,6 +343,7 @@ impl B2 {
     pub async fn upload_file<'a>(&'a mut self, filename: &'a str,
                              data: ProgressDataReader,
                              enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
+
         if self.upload.is_none() {
             self.upload = Some(await!(self.get_upload_url())?);
         }
@@ -390,7 +393,7 @@ impl B2 {
     pub async fn download_file<'a>(&'a self, filename: &'a str) -> Result<Vec<u8>, Box<dyn Error + 'static>> {
         let filename = filename.to_owned();
         let (status, body) = await!(self.request_with_backoff(||
-            Request::get(self.download_url.clone() + "/file/frozen/" + &filename)
+            Request::get(self.bucket_download_url.clone() + &filename)
                 .header(AUTHORIZATION, self.auth_token.clone())
                 .header(CONNECTION, "keep-alive")
                 .body(Body::empty())

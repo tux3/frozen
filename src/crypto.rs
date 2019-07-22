@@ -18,10 +18,10 @@ pub struct AppKeys {
     pub encryption_key: Key,
 }
 
-/// Derives a secret key from the user password and the account ID (used as a salt)
-pub fn derive_key(pwd: &str, acc_id: &str) -> Key {
+/// Derives a secret key from the user password and the key ID (used as a salt)
+pub fn derive_key(pwd: &str, salt: &str) -> Key {
     let mut key = Key([0; secretbox::KEYBYTES]);
-    let hash = hash::sha256::hash(&Vec::from(acc_id));
+    let hash = hash::sha256::hash(&Vec::from(salt));
     let salt = pwhash::Salt::from_slice(hash.as_ref()).unwrap();
     {
         let secretbox::Key(ref mut kb) = key;

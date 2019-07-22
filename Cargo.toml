@@ -29,6 +29,7 @@ clamp = "= 0.1.0" # This is a left-pad-like dep, does not ever need to update
 clap = "2"
 leb128 = "0.2"
 ignore-result = "0.2"
+rand = "0.7"
 
 [profile.release]
 lto = true
