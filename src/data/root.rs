@@ -156,7 +156,10 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
 }
 
 pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error + 'static>> {
-    let enc_data = await!(b2.download_file("backup_root"))?;
+    let enc_data = match b2.download_file("backup_root").await {
+        Ok(enc_data) => enc_data,
+        Err(_) => return Ok(Vec::new()),
+    };
     let data = crypto::decrypt(&enc_data, &b2.key)?;
     Ok(deserialize(&data[..]).unwrap())
 }
