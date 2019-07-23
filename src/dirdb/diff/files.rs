@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use futures::channel::mpsc::{Sender};
 use futures::sink::SinkExt;
 use super::{FileStat, DirStat};
@@ -28,7 +29,7 @@ fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, stat: &DirStat,
     }
 }
 
-pub async fn diff_files_at<'dirdb>(root: &'dirdb BackupRoot, b2: B2, mut tx: Sender<FileDiff>,
+pub async fn diff_files_at<'dirdb>(root: &BackupRoot, b2: &B2, mut tx: Sender<FileDiff>,
                                prefix: &'dirdb str, stat: &'dirdb DirStat) -> Result<(), Box<dyn Error + 'static>> {
     let remote_files = root.list_remote_files_at(&b2, &prefix).await?;
     println!("Listed {} remote files! Local folder has {} files.", remote_files.len(), stat.total_files_count);

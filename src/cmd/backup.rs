@@ -47,21 +47,25 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     let rfiles = root.list_remote_files(&b2).await?;
     err_on_signal()?;
 
-
+    println!("Starting DirDB-based diff");
     let dirdb_path = "dirdb/".to_string()+&root.path_hash;
     let remote_dirdb = b2.download_file(&dirdb_path).await.and_then(|data| {
         DirDB::new_from_packed(&data, &keys.encryption_key)
     }).ok();
-    let mut dir_diff = DirDiff::new(&local_dirdb, remote_dirdb)?;
-    dir_diff.start_diff_remote_files(&root, &b2).await?;
-
-    if let Some(dirdb_data) = dir_diff.get_pessimistic_dirdb_data(&b2.key)? {
-        b2.upload_file(&dirdb_path, ProgressDataReader::new_silent(dirdb_data), None).await?;
-    }
+    let mut dir_diff = DirDiff::new(&root, &b2, &local_dirdb, remote_dirdb)?;
+//    println!("Starting remote files diff");
+//    dir_diff.start_diff_remote_files(arc_root.clone(), arc_b2.clone()).await;
+//    println!("Started remote files diff");
 
     let arc_b2 = Arc::new(b2.clone());
-    let arc_root = Arc::new(root);
+    let arc_root = Arc::new(root.clone());
     let arc_path = Arc::new(path);
+
+    if let Some(dirdb_data) = dir_diff.get_pessimistic_dirdb_data(&b2.key)? {
+        println!("Uploading pessimistic dirdb");
+        b2.upload_file(&dirdb_path, ProgressDataReader::new_silent(dirdb_data), None).await?;
+        println!("Uploaded pessimistic dirdb");
+    }
 
     println!("Starting backup");
     progress::start_output(config.verbose, num_cpus::get());
