@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
-use futures::channel::mpsc::{Sender};
-use futures::sink::SinkExt;
+use std::pin::Pin;
+use futures::{Stream, Poll, SinkExt};
+use futures::task::Context;
+use futures::channel::mpsc::Sender;
 use super::{FileStat, DirStat};
 use crate::crypto;
 use crate::data::root::BackupRoot;
@@ -12,6 +14,25 @@ use crate::net::b2::B2;
 pub struct FileDiff {
     pub local: Option<LocalFile>,
     pub remote: Option<RemoteFile>,
+}
+
+pub struct FileDiffStream {
+}
+
+impl FileDiffStream {
+    pub fn new() -> Self {
+        Self {
+
+        }
+    }
+}
+
+impl Stream for FileDiffStream {
+    type Item = FileDiff;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unimplemented!()
+    }
 }
 
 fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, stat: &DirStat, key: &crypto::Key) {

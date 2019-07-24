@@ -5,7 +5,8 @@ use std::sync::{Mutex, Arc};
 use std::task::Context;
 use futures::channel::mpsc::{channel, Sender, Receiver};
 use futures::future::{FutureExt, TryFutureExt, BoxFuture};
-use futures::{Stream, Poll, Future};
+use futures::{Stream, StreamExt, Poll, Future};
+use self::files::FileDiffStream;
 use super::{DirDB, DirStat, FileStat};
 use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
@@ -16,22 +17,21 @@ mod files;
 pub use files::FileDiff;
 
 /// Use this struct to start diffing folders and to receive `FileDiff`s
-pub struct DirDiff<'diff> {
-    /// Prefixes for list file requests
-    list_requests: Vec<BoxFuture<'diff, Result<(), Box<dyn Error>>>>,
+pub struct DirDiff {
+    diff_stream: FileDiffStream,
     receiver: Receiver<FileDiff>,
     sender: Mutex<Cell<Option<Sender<FileDiff>>>>,
     pessimistic_dirdb: Option<DirDB>,
 }
 
-impl<'diff> DirDiff<'diff> {
-    pub fn new<'a>(root: &'a BackupRoot, b2: &'a B2, local: &'a DirDB, remote: Option<DirDB>) -> Result<DirDiff<'a>, Box<dyn Error>> {
+impl DirDiff {
+    pub fn new<'a>(root: &'a BackupRoot, b2: &'a B2, local: &'a DirDB, remote: Option<DirDB>) -> Result<DirDiff, Box<dyn Error>> {
         let (tx_file, rx_file) = channel(16);
         let list_all_fut = files::diff_files_at(root, b2, tx_file.clone(), "", &local.root).boxed::<'a>();
         let remote = match remote {
             Some(remote) => remote,
             None => return Ok(DirDiff {
-                list_requests: vec![list_all_fut],
+                diff_stream: FileDiffStream::new(),
                 receiver: rx_file,
                 sender: Mutex::new(Cell::new(Some(tx_file))),
                 pessimistic_dirdb: None,
@@ -43,7 +43,7 @@ impl<'diff> DirDiff<'diff> {
         };
 
         Ok(DirDiff {
-            list_requests: vec![files::diff_files_at(root, b2, tx_file.clone(), "", &local.root).boxed()],
+            diff_stream: FileDiffStream::new(),
             receiver: rx_file,
             sender: Mutex::new(Cell::new(Some(tx_file))),
             pessimistic_dirdb: Some(pessimistic_dirdb),
@@ -61,6 +61,8 @@ impl<'diff> DirDiff<'diff> {
         //    We can go back to putting all the list request futures in a vec and/or joining them, the goal being to run the network requests in parallel
         //  => How do we forward multiple results from each list request (on different threads!) to the stream output? I guess we can keep the sender/receiver internally!
         //  > We can probably eliminate start_diff_remote_files from the API and just create the futures in the ctor (but don't await them)
+        //  > Can't we make each of the futures we have Streams, and merge them into one?
+        //    Each list request would be started as its own Stream and we just have to poll it without bothering with send/recv
 
 //        let list_requests = std::mem::replace(&mut self.list_requests, Vec::new());
 //        list_requests.into_iter().map(|(prefix, stat)| {
@@ -69,16 +71,10 @@ impl<'diff> DirDiff<'diff> {
     }
 }
 
-impl Stream for DirDiff<'_> {
+impl Stream for DirDiff {
     type Item = FileDiff;
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context) -> Poll<Option<Self::Item>> {
-        // FIXME: Poll the list request futures, not just the receiver!
-        Pin::new(&mut self.receiver).poll_next(context)
+        self.diff_stream.poll_next_unpin(context)
     }
-}
-
-/// This works around a rustc bug: https://github.com/rust-lang-nursery/futures-rs/issues/1451
-async fn is_ok(f: impl std::future::Future<Output=Result<(), Box<dyn std::error::Error + 'static>>>) -> bool {
-    await!(f).is_ok()
 }

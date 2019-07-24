@@ -53,9 +53,6 @@ pub async fn backup<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
         DirDB::new_from_packed(&data, &keys.encryption_key)
     }).ok();
     let mut dir_diff = DirDiff::new(&root, &b2, &local_dirdb, remote_dirdb)?;
-//    println!("Starting remote files diff");
-//    dir_diff.start_diff_remote_files(arc_root.clone(), arc_b2.clone()).await;
-//    println!("Started remote files diff");
 
     let arc_b2 = Arc::new(b2.clone());
     let arc_root = Arc::new(root.clone());
