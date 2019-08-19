@@ -52,7 +52,7 @@ impl Config {
     pub fn get_app_keys(&self) -> Result<AppKeys, Box<dyn Error>> {
         let keys = loop {
             let pwd = prompt_password("Enter your backup password");
-            let key = derive_key(&pwd, &self.app_key_id);
+            let key = derive_key(&pwd, &self.bucket_name);
             if let Ok(app_key) = decrypt(&self.encrypted_app_key, &key) {
                 break AppKeys {
                     b2_key_id: self.app_key_id.clone(),
@@ -74,7 +74,7 @@ impl Config {
         let bucket_name = prompt("Enter your backup bucket name");
         let passwd = prompt_password("Choose a backup password");
 
-        let encryption_key = derive_key(&passwd, &b2_key_id);
+        let encryption_key = derive_key(&passwd, &bucket_name);
         Config {
             encrypted_app_key: encrypt(&Vec::from(b2_key.as_str()), &encryption_key),
             app_key_id: b2_key_id,
