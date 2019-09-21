@@ -6,14 +6,14 @@ edition = "2018"
 publish = false
 
 [dependencies]
-tokio = {git = "https://github.com/tokio-rs/tokio"}
-tokio-threadpool = {git = "https://github.com/tokio-rs/tokio"}
-hyper = {git = "https://github.com/hyperium/hyper"}
-hyper-tls = {git = "https://github.com/95th/hyper-tls"}
+tokio = "0.2.0-alpha.5"
+tokio-executor = "0.2.0-alpha.5"
+hyper = { version = "0.13.0-alpha.2", features = ["unstable-stream"] }
+hyper-tls = "0.4.0-alpha.1"
 bytes = "0.4"
-futures-preview = { version = "0.3.0-alpha", features = ["compat", "async-await", "nightly"] }
-futures-timer = "0.2"
-bincode = "1.0"
+futures-preview = { version = "0.3.0-alpha", features = ["async-await", "nightly"] }
+futures-timer = "0.3"
+bincode = "1.2"
 sodiumoxide = "0.2"
 libsodium-sys = "0.2"
 rpassword = "2.1"
@@ -31,10 +31,10 @@ num_cpus = "1.10"
 clap = "2"
 leb128 = "0.2"
 ignore-result = "0.2"
-rand = "0.7"
+owning_ref = "0.3"
+hashbrown = "0.6"
 
 [profile.release]
 lto = true
 incremental = false
 codegen-units = 1
-panic = "abort"

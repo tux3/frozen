@@ -16,6 +16,19 @@ pub struct DirDB {
 }
 
 impl DirDB {
+    pub fn new_empty() -> Self {
+        DirDB {
+            root: DirStat {
+                total_files_count: 0,
+                direct_files: None,
+                subfolders: Vec::new(),
+                dir_name: None,
+                dir_name_hash: [0; 8],
+                content_hash: [0; 8],
+            }
+        }
+    }
+
     pub fn new_from_local(path: &Path) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             root: DirStat::new(path, path)?,

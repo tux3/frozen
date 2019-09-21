@@ -18,20 +18,20 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
-    let b2 = await!(B2::authenticate(config, &keys))?;
+    let b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
-    let mut roots = await!(root::fetch_roots(&b2))?;
+    let mut roots = root::fetch_roots(&b2).await?;
 
     println!("Opening backup folder {}", path.display());
-    let root = await!(root::open_root(&b2, &mut roots, &path))?;
+    let root = root::open_root(&b2, &mut roots, &path).await?;
 
     println!("Starting to list local files");
     let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, &target)?;
     err_on_signal()?;
 
     println!("Listing remote files");
-    let mut rfiles = await!(root.list_remote_files(&b2))?;
+    let mut rfiles = root.list_remote_files(&b2).await?;
     err_on_signal()?;
 
     println!("Starting download");
@@ -55,11 +55,11 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
                 }
             }
             err_on_signal()?;
-            await!(progress::handle_progress(config.verbose, &mut download_threads));
-            await!(Delay::new(Duration::from_millis(20))).ignore();
+            progress::handle_progress(config.verbose, &mut download_threads).await;
+            Delay::new(Duration::from_millis(20)).await.ignore();
         }
         err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut download_threads));
+        progress::handle_progress(config.verbose, &mut download_threads).await;
     }
 
     // Tell our threads to stop as they become idle
@@ -69,8 +69,8 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
         if thread_id < download_threads.len() {
             let result = &download_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                await!(progress::handle_progress(config.verbose, &mut download_threads));
-                await!(Delay::new(Duration::from_millis(20))).ignore();
+                progress::handle_progress(config.verbose, &mut download_threads).await;
+                Delay::new(Duration::from_millis(20)).await.ignore();
                 continue;
             }
         }
@@ -84,8 +84,8 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
 
     while !download_threads.is_empty() {
         err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut download_threads));
-        await!(Delay::new(Duration::from_millis(20))).ignore();
+        progress::handle_progress(config.verbose, &mut download_threads).await;
+        Delay::new(Duration::from_millis(20)).await.ignore();
     }
     list_thread.join().unwrap();
 

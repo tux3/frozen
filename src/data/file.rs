@@ -54,20 +54,7 @@ impl LocalFile {
     }
 
     pub fn read_all(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
-        let mut file : File = File::open(root_path.join(&self.rel_path))?;
-        let mut size = file.seek(SeekFrom::End(0))? as usize;
-        file.seek(SeekFrom::Start(0))?;
-        let mut contents = Vec::with_capacity(size);
-        unsafe { contents.set_len(size); }
-        let mut pos = 0;
-        while let Ok(n) = file.read(&mut contents[pos..pos+size]) {
-            if n == 0 {
-                break;
-            }
-            pos += n;
-            size -= n;
-        }
-        Ok(contents)
+        Ok(fs::read(root_path.join(&self.rel_path))?)
     }
 }
 

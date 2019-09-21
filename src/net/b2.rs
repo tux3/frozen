@@ -59,7 +59,7 @@ async fn warning<'a>(maybe_progress: &'a Option<Sender<Progress>>, msg: &'a str)
     match maybe_progress {
         Some(progress) => {
             let mut progress = progress.clone();
-            await!(progress.send(Progress::Warning(msg.to_owned()))).unwrap_or(())
+            progress.send(Progress::Warning(msg.to_owned())).await.unwrap_or(())
         },
         None => println!("Warning: {}", msg),
     }
@@ -72,7 +72,7 @@ fn make_basic_auth(AppKeys{b2_key_id: username, b2_key: password, ..}: &AppKeys)
 }
 
 fn make_client() -> Client<HttpsConnector<HttpConnector>> {
-    let https = HttpsConnector::new(4).unwrap();
+    let https = HttpsConnector::new().unwrap();
     Client::builder().build::<_, hyper::Body>(https)
 }
 
@@ -89,20 +89,20 @@ impl B2 {
             }
 
             let req = req_builder();
-            let res = match await!(self.client.request(req)) {
+            let res = match self.client.request(req).await {
                 Ok(res) => res,
                 Err(e) => {
                     let err_str = format!("Unexpected request failure: {}", e);
-                    await!(warning(&self.tx_progress, &err_str));
+                    warning(&self.tx_progress, &err_str).await;
                     continue;
                 },
             };
             let status = res.status();
-            let body = await!(res.into_body().try_concat())?;
+            let body = res.into_body().try_concat().await?;
 
             // Temporary failure is not an error, just asking for an exponential backoff
             if status.as_u16() == 503 || status.as_u16() == 408 {
-                await!(warning(&self.tx_progress, status.canonical_reason().unwrap_or("Temporary request failure")));
+                warning(&self.tx_progress, status.canonical_reason().unwrap_or("Temporary request failure")).await;
                 continue;
             }
 
@@ -121,9 +121,9 @@ impl B2 {
             .body(Body::empty())
             .unwrap();
 
-        let res = await!(client.request(req))?;
+        let res = client.request(req).await?;
         let status = res.status();
-        let body = await!(res.into_body().try_concat())?;
+        let body = res.into_body().try_concat().await?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => return Err(From::from(format!("authenticate failed to parse json: {}",
@@ -152,7 +152,7 @@ impl B2 {
             client,
         };
 
-        let bucket_id = await!(b2.get_bucket_id(&bucket_name))?;
+        let bucket_id = b2.get_bucket_id(&bucket_name).await?;
         b2.bucket_id = bucket_id;
 
         Ok(b2)
@@ -161,7 +161,7 @@ impl B2 {
     async fn get_bucket_id<'a>(&'a self, bucket_name: &'a str) -> Result<String, Box<dyn Error + 'static>> {
         let bucket_name = bucket_name.to_owned(); // Can't wait for the Pin API!
 
-        let (status, body) = await!(self.request_with_backoff(||
+        let (status, body) = self.request_with_backoff(||
             Request::builder()
                 .uri(self.api_url.clone() + "/b2api/v2/b2_list_buckets")
                 .method("POST")
@@ -172,7 +172,7 @@ impl B2 {
                     \"accountId\":\"{}\"\
                     }}", bucket_name, self.acc_id)))
                 .unwrap()
-        ))?;
+        ).await?;
 
         let reply_json: Value = serde_json::from_slice(&body)?;
 
@@ -201,7 +201,7 @@ impl B2 {
         let mut files: Vec<RemoteFile> = Vec::new();
 
         loop {
-            let (status, body) = await!(self.request_with_backoff(|| {
+            let (status, body) = self.request_with_backoff(|| {
                 let body = if start_filename.is_some() {
                     format!("{{\"startFileName\":\"{}\",\
                                 {}}}", start_filename.as_ref().unwrap(), body_base)
@@ -214,7 +214,7 @@ impl B2 {
                     .header(CONNECTION, "keep-alive")
                     .body(Body::from(body))
                     .unwrap()
-            }))?;
+            }).await?;
 
             let reply_json: Value = serde_json::from_slice(&body)?;
             if !status.is_success() {
@@ -252,7 +252,7 @@ impl B2 {
         let mut files: Vec<RemoteFileVersion> = Vec::new();
 
         loop {
-            let (status, body) = await!(self.request_with_backoff(|| {
+            let (status, body) = self.request_with_backoff(|| {
                 let body = if start_file_version.is_some() {
                     let ver = start_file_version.as_ref().unwrap();
                     format!("{{\"startFileName\":\"{}\",\
@@ -267,7 +267,7 @@ impl B2 {
                     .header(CONNECTION, "keep-alive")
                     .body(Body::from(body))
                     .unwrap()
-            }))?;
+            }).await?;
 
             let reply_json: Value = serde_json::from_slice(&body)?;
             if !status.is_success() {
@@ -302,13 +302,13 @@ impl B2 {
     }
 
     async fn get_upload_url(&self) -> Result<B2Upload, Box<dyn Error>> {
-        let (status, body) = await!(self.request_with_backoff(||
+        let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
                 .header(AUTHORIZATION, self.auth_token.clone())
                 .header(CONNECTION, "keep-alive")
                 .body(Body::from(format!("{{\"bucketId\":\"{}\"}}", self.bucket_id)))
                 .unwrap()
-        ))?;
+        ).await?;
 
         let reply_json: Value = serde_json::from_slice(&body)?;
         if !status.is_success() {
@@ -325,14 +325,14 @@ impl B2 {
     }
 
     pub async fn delete_file_version<'a>(&'a self, file_version: &'a RemoteFileVersion) -> Result<(), Box<dyn Error + 'static>> {
-        let (status, body) = await!(self.request_with_backoff(||
+        let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_delete_file_version")
                 .header(AUTHORIZATION, self.auth_token.clone())
                 .header(CONNECTION, "keep-alive")
                 .body(Body::from(format!("{{\"fileId\": \"{}\", \
                               \"fileName\": \"{}\"}}", file_version.id, file_version.path)))
                 .unwrap()
-        ))?;
+        ).await?;
 
         if !status.is_success() {
             let reply_json: Value = serde_json::from_slice(&body)?;
@@ -371,7 +371,7 @@ impl B2 {
             encode_meta(&self.key, Path::new(filename), last_modified, mode, false)
         };
 
-        let (status, body) = await!(self.request_with_backoff(|| {
+        let (status, body) = self.request_with_backoff(|| {
             let data_stream = Box::new(data.clone()) as Box<dyn Stream<Item=Result<Chunk, Box<(dyn std::error::Error + Sync + Send + 'static)>>> + Send + Sync + 'static>;
             let sha1 = crypto::sha1_string(data.as_slice());
             Request::post(&upload_url)
@@ -384,7 +384,7 @@ impl B2 {
                 .header("X-Bz-Info-enc_meta", enc_meta.to_owned())
                 .body(Body::from(data_stream))
                 .unwrap()
-        }))?;
+        }).await?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => return Err(From::from(format!("upload_file failed to parse json: {}",
@@ -407,13 +407,13 @@ impl B2 {
 
     pub async fn download_file<'a>(&'a self, filename: &'a str) -> Result<Vec<u8>, Box<dyn Error + 'static>> {
         let filename = filename.to_owned();
-        let (status, body) = await!(self.request_with_backoff(||
+        let (status, body) = self.request_with_backoff(||
             Request::get(self.bucket_download_url.clone() + &filename)
                 .header(AUTHORIZATION, self.auth_token.clone())
                 .header(CONNECTION, "keep-alive")
                 .body(Body::empty())
                 .unwrap()
-        ))?;
+        ).await?;
 
         if !status.is_success() {
             return Err(From::from(format!("Download of {} failed with error {}",
@@ -424,14 +424,14 @@ impl B2 {
     }
 
     pub async fn hide_file<'a>(&'a self, file_path_hash: &'a str) -> Result<(), Box<dyn Error + 'static>> {
-        let (status, body) = await!(self.request_with_backoff(||
+        let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_hide_file")
                 .header(AUTHORIZATION, self.auth_token.clone())
                 .header(CONNECTION, "keep-alive")
                 .body(Body::from(format!("{{\"bucketId\": \"{}\", \
                               \"fileName\": \"{}\"}}", self.bucket_id, file_path_hash)))
                 .unwrap()
-        ))?;
+        ).await?;
 
         if !status.is_success() {
             let reply_json: Value = serde_json::from_slice(&body)?;

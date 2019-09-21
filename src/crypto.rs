@@ -39,12 +39,15 @@ pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
     let clen = plain.len() + secretbox::MACBYTES;
     let mut cipher = Vec::with_capacity(clen + secretbox::NONCEBYTES);
     unsafe {
-        cipher.set_len(clen);
+        // Safe because:
+        // 1. We set the capacity >= clen
+        // 2. crypto_secretbox_easy writes exactly clen
         libsodium_sys::crypto_secretbox_easy(cipher.as_mut_ptr(),
                                    plain.as_ptr(),
                                    plain.len() as u64,
                                    nonceb.as_ptr(),
                                    key.as_ptr());
+        cipher.set_len(clen);
     }
 
     cipher.extend_from_slice(&nonceb);

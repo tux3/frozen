@@ -1,9 +1,9 @@
-#![feature(await_macro, async_await)]
-
 use crate::config::Config;
+use crate::box_result::BoxResult;
 use clap::{Arg, App, SubCommand, ArgMatches};
 use std::process::exit;
 
+mod box_result;
 mod cmd;
 mod config;
 mod net;
@@ -13,15 +13,8 @@ mod crypto;
 mod data;
 mod dirdb;
 
-fn help_and_die(args: &ArgMatches) -> ! {
-    println!("{}", args.usage());
-    exit(1);
-}
-
 #[tokio::main]
-async fn main() {
-    signal::setup_signal_handler();
-
+async fn async_main() -> BoxResult<()> {
     let args = App::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
         .arg(Arg::with_name("verbose")
@@ -82,8 +75,6 @@ async fn main() {
         .get_matches();
 
     let config = Config::get_or_create(args.is_present("verbose"));
-
-    let mut return_code = 0;
     match args.subcommand() {
         ("backup", Some(sub_args)) => cmd::backup(&config, sub_args).await,
         ("restore", Some(sub_args)) => cmd::restore(&config, sub_args).await,
@@ -91,14 +82,21 @@ async fn main() {
         ("unlock", Some(sub_args)) => cmd::unlock(&config, sub_args).await,
         ("list", Some(sub_args)) => cmd::list(&config, sub_args).await,
         ("rename", Some(sub_args)) => cmd::rename(&config, sub_args).await,
-        _ => help_and_die(&args),
-    }.unwrap_or_else(|err| {
-        println!("\r{} failed: {}", args.subcommand_name().unwrap(), err);
-        // Note that we can't exit here, we must let any pending spawned futures finish first.
-        return_code = 1;
-    });
+        _ => unreachable!(),
+    }.map_err(|err| {
+        From::from(format!("\r{} failed: {}", args.subcommand_name().unwrap(), err))
+    })
+}
 
-    // TODO: Find a way to wait for any spawned futures before we exit. Push them in a global Q? Give them to a thread we can join? Use a tokio wait function?
+fn main() {
+    signal::setup_signal_handler();
 
+    let return_code = match async_main() {
+        Ok(()) => 0,
+        Err(err) => {
+            eprintln!("{}", err);
+            1
+        }
+    };
     exit(return_code);
 }

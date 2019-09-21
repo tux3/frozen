@@ -9,7 +9,6 @@ use pretty_bytes::converter::convert;
 use bytes::Bytes;
 use futures::{stream::Stream, Poll};
 use hyper::Chunk;
-use ignore_result::Ignore;
 use crate::net::progress_thread;
 use super::vt100::*;
 

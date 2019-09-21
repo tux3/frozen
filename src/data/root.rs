@@ -55,7 +55,7 @@ impl BackupRoot {
     }
 
     pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
-        await!(self.list_remote_files_at(b2, ""))
+        self.list_remote_files_at(b2, "").await
     }
 
     pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
@@ -64,7 +64,7 @@ impl BackupRoot {
         }
 
         let path = self.path_hash.clone()+"/"+prefix;
-        let mut files = await!(b2.list_remote_files(&path))?;
+        let mut files = b2.list_remote_files(&path).await?;
         files.sort();
         Ok(files)
     }
@@ -87,8 +87,8 @@ impl BackupRoot {
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
 
         let data_reader = ProgressDataReader::new_silent(Vec::new());
-        let lock_version = await!(b2.upload_file(&lock_path, data_reader, None))?;
-        let locks = await!(b2.list_remote_file_versions(&lock_path_prefix));
+        let lock_version = b2.upload_file(&lock_path, data_reader, None).await?;
+        let locks = b2.list_remote_file_versions(&lock_path_prefix).await;
         self.lock = Some((lock_version, b2.clone()));
 
         if locks.is_err() {
@@ -112,25 +112,7 @@ impl BackupRoot {
             return Ok(());
         }
         let (version, b2) = self.lock.take().unwrap();
-        await!(BackupRoot::unlock_impl(version, b2))
-    }
-
-    pub fn release_lock(&mut self) -> Option<(RemoteFileVersion, b2::B2)> {
-        self.lock.take()
-    }
-
-    async fn unlock_impl(version: RemoteFileVersion, b2: b2::B2) -> Result<(), Box<dyn Error + 'static>> {
-        await!(b2.delete_file_version(&version))
-    }
-}
-
-impl Drop for BackupRoot {
-    fn drop(&mut self) {
-        if let Some((version, b2)) = self.release_lock() {
-            tokio::spawn(async {
-                let _ = await!(BackupRoot::unlock_impl(version, b2));
-            });
-        }
+        b2.delete_file_version(&version).await
     }
 }
 
@@ -171,7 +153,7 @@ pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> Result<()
     let plain_data = serialize(roots)?;
     let data = crypto::encrypt(&plain_data, &b2.key);
     let data_reader = ProgressDataReader::new_silent(data);
-    await!(b2.upload_file("backup_root", data_reader, None))?;
+    b2.upload_file("backup_root", data_reader, None).await?;
     Ok(())
 }
 
@@ -184,10 +166,10 @@ pub async fn open_create_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>
     } else {
         root = BackupRoot::new(path, &b2.key);
         roots.push(root.clone());
-        await!(save_roots(b2, roots))?;
+        save_roots(b2, roots).await?;
     }
 
-    await!(root.lock(b2))?;
+    root.lock(b2).await?;
     Ok(root)
 }
 
@@ -199,7 +181,7 @@ pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>,
         .is_none() {
         Err(From::from(format!("Backup does not exist for \"{}\", nothing to delete", path.display())))
     } else {
-        await!(save_roots(b2, roots))
+        save_roots(b2, roots).await
     }
 }
 
@@ -209,7 +191,7 @@ pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path:
     match roots.iter().find(|r| r.path == path) {
         Some(root) => {
             let mut root = root.clone();
-            await!(root.lock(b2))?;
+            root.lock(b2).await?;
             Ok(root)
         },
         None => Err(From::from(format!("Backup does not exist for \"{}\"", path.display()))),
@@ -221,11 +203,11 @@ pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'
                             -> Result<(), Box<dyn Error + 'static>> {
     if let Some(root) = roots.iter().find(|r| r.path == *path) {
         let lock_path_prefix = root.path_hash.to_owned() + ".lock.";
-        let locks = await!(b2.list_remote_file_versions(&lock_path_prefix))?;
+        let locks = b2.list_remote_file_versions(&lock_path_prefix).await?;
 
         println!("{} lock files to remove", locks.len());
         for lock_version in &locks {
-            await!(b2.delete_file_version(&lock_version))?;
+            b2.delete_file_version(&lock_version).await?;
         }
         Ok(())
     } else {

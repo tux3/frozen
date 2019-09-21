@@ -33,7 +33,7 @@ impl UploadThread {
         b2.tx_progress = Some(tx_progress.clone());
 
         tokio::spawn(async {
-            let _ = await!(UploadThread::upload(root, b2, config, source_path, rx_file, tx_progress));
+            let _ = UploadThread::upload(root, b2, config, source_path, rx_file, tx_progress).await;
         });
 
         UploadThread {
@@ -45,7 +45,7 @@ impl UploadThread {
     async fn upload(root: BackupRoot, b2: b2::B2, config: Config, source_path: PathBuf,
                     mut rx_file: Receiver<Option<LocalFile>>, mut tx_progress: Sender<Progress>)
                     -> Result<(), Box<dyn Error + 'static>> {
-        while let Some(file) = await!(rx_file.next()) {
+        while let Some(file) = rx_file.next().await {
             if file.is_none() {
                 break;
             }
@@ -54,7 +54,7 @@ impl UploadThread {
             upload(&root, &b2, config.compression_level, source_path.clone(), file).await;
         }
 
-        await!(tx_progress.send(Progress::Terminated))?;
+        tx_progress.send(Progress::Terminated).await?;
         Ok(())
     }
 }
@@ -106,7 +106,7 @@ pub async fn upload(root: impl Borrow<BackupRoot>, b2: impl Borrow<b2::B2>,
     let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified,
                                        file.mode, is_symlink);
 
-    let err = await!(b2.upload_file(&filehash, progress_reader, Some(enc_meta))).map_err(|err| {
+    let err = b2.upload_file(&filehash, progress_reader, Some(enc_meta)).await.map_err(|err| {
         Progress::Error(format!("Failed to upload file \"{}\": {}", filename.display(), err))
     });
     if let Err(err) = err {

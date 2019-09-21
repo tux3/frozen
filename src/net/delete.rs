@@ -27,7 +27,7 @@ impl DeleteThread {
         b2.tx_progress = Some(tx_progress.clone());
 
         tokio::spawn(async {
-            let _ = await!(DeleteThread::delete(root, b2, rx_file, tx_progress));
+            let _ = DeleteThread::delete(root, b2, rx_file, tx_progress).await;
         });
 
         DeleteThread {
@@ -39,7 +39,7 @@ impl DeleteThread {
     async fn delete(root: BackupRoot, b2: b2::B2,
                     mut rx_file: Receiver<Option<RemoteFile>>, mut tx_progress: Sender<Progress>)
                     -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        while let Some(file) = await!(rx_file.next()) {
+        while let Some(file) = rx_file.next().await {
             if file.is_none() {
                 break;
             }
@@ -48,7 +48,7 @@ impl DeleteThread {
             delete(&root, &b2, file).await;
         }
 
-        await!(tx_progress.send(Progress::Terminated))?;
+        tx_progress.send(Progress::Terminated).await?;
         Ok(())
     }
 }
@@ -65,7 +65,7 @@ pub async fn delete(root: impl Borrow<BackupRoot>, b2: impl Borrow<b2::B2>, file
         id: file.id.clone(),
     };
 
-    let err = await!(b2.delete_file_version(&version)).map_err(|err| {
+    let err = b2.delete_file_version(&version).await.map_err(|err| {
         Progress::Error(format!("Failed to delete last version of \"{}\": {}", file.rel_path.display(), err))
     });
     if let Err(Progress::Error(msg)) = err {
@@ -74,7 +74,7 @@ pub async fn delete(root: impl Borrow<BackupRoot>, b2: impl Borrow<b2::B2>, file
     }
 
     let path = root.path_hash.clone()+"/"+&file.rel_path_hash;
-    let _ = await!(b2.hide_file(&path));
+    let _ = b2.hide_file(&path).await;
 
     progress_output(Progress::Deleted(file.rel_path.display().to_string()));
 }

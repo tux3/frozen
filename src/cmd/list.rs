@@ -8,10 +8,10 @@ pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<(
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
-    let b2 = await!(B2::authenticate(config, &keys))?;
+    let b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
-    let roots = await!(root::fetch_roots(&b2))?;
+    let roots = root::fetch_roots(&b2).await?;
 
     println!("Backed-up folders:");
     for root in roots {

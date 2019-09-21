@@ -11,10 +11,10 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
-    let mut b2 = await!(B2::authenticate(config, &keys))?;
+    let mut b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
-    let mut roots = await!(root::fetch_roots(&b2))?;
+    let mut roots = root::fetch_roots(&b2).await?;
 
     let root = match roots.iter_mut().find(|r| r.path == *src_path) {
         Some(root) => root,
@@ -23,5 +23,5 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     println!("Renaming folder {} to {}", src_path.display(), target_path.display());
     root.rename(target_path);
-    await!(root::save_roots(&mut b2, &roots))
+    root::save_roots(&mut b2, &roots).await
 }

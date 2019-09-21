@@ -2,7 +2,6 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::env;
 use std::error::Error;
-use rand::{thread_rng, Rng, distributions::Alphanumeric};
 use serde::{Serialize, Deserialize};
 use serde_json;
 use crate::termio::{prompt, prompt_password, prompt_yes_no};

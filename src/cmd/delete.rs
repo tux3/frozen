@@ -14,17 +14,17 @@ pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
-    let mut b2 = await!(B2::authenticate(config, &keys))?;
+    let mut b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
-    let mut roots = await!(root::fetch_roots(&b2))?;
+    let mut roots = root::fetch_roots(&b2).await?;
 
     println!("Deleting backup folder {}", path.display());
 
-    let root = await!(root::open_root(&b2, &mut roots, &path))?;
-    await!(delete_files(config, &mut b2, &root))?;
+    let root = root::open_root(&b2, &mut roots, &path).await?;
+    delete_files(config, &mut b2, &root).await?;
 
-    await!(root::delete_root(&mut b2, &mut roots, &path))
+    root::delete_root(&mut b2, &mut roots, &path).await
 }
 
 async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
@@ -33,7 +33,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
     err_on_signal()?;
 
     println!("Listing remote files");
-    let rfiles = await!(root.list_remote_files(b2))?;
+    let rfiles = root.list_remote_files(b2).await?;
 
     // Delete all remote files
     let mut delete_threads = root.start_delete_threads(b2, config);
@@ -47,11 +47,11 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
                 }
             }
             err_on_signal()?;
-            await!(progress::handle_progress(config.verbose, &mut delete_threads));
-            await!(Delay::new(Duration::from_millis(20))).ignore();
+            progress::handle_progress(config.verbose, &mut delete_threads).await;
+            Delay::new(Duration::from_millis(20)).await.ignore();
         }
         err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut delete_threads));
+        progress::handle_progress(config.verbose, &mut delete_threads).await;
     }
 
     // Tell our delete threads to stop as they become idle
@@ -61,8 +61,8 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
         if thread_id < delete_threads.len() {
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
-                await!(progress::handle_progress(config.verbose, &mut delete_threads));
-                await!(Delay::new(Duration::from_millis(20))).ignore();
+                progress::handle_progress(config.verbose, &mut delete_threads).await;
+                Delay::new(Duration::from_millis(20)).await.ignore();
                 continue;
             }
         }
@@ -76,8 +76,8 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
 
     while !delete_threads.is_empty() {
         err_on_signal()?;
-        await!(progress::handle_progress(config.verbose, &mut delete_threads));
-        await!(Delay::new(Duration::from_millis(20))).ignore();
+        progress::handle_progress(config.verbose, &mut delete_threads).await;
+        Delay::new(Duration::from_millis(20)).await.ignore();
     }
 
     Ok(())
