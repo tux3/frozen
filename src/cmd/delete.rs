@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::time::Duration;
 use clap::ArgMatches;
-use futures_timer::Delay;
 use ignore_result::Ignore;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
@@ -48,7 +47,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
             }
             err_on_signal()?;
             progress::handle_progress(config.verbose, &mut delete_threads).await;
-            Delay::new(Duration::from_millis(20)).await.ignore();
+            //Delay::new(Duration::from_millis(20)).await.ignore();
         }
         err_on_signal()?;
         progress::handle_progress(config.verbose, &mut delete_threads).await;
@@ -62,7 +61,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
             let result = &delete_threads[thread_id].tx.try_send(None);
             if result.is_err() {
                 progress::handle_progress(config.verbose, &mut delete_threads).await;
-                Delay::new(Duration::from_millis(20)).await.ignore();
+                //Delay::new(Duration::from_millis(20)).await.ignore();
                 continue;
             }
         }
@@ -77,7 +76,7 @@ async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
     while !delete_threads.is_empty() {
         err_on_signal()?;
         progress::handle_progress(config.verbose, &mut delete_threads).await;
-        Delay::new(Duration::from_millis(20)).await.ignore();
+        //Delay::new(Duration::from_millis(20)).await.ignore();
     }
 
     Ok(())

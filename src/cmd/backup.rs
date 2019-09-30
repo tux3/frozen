@@ -64,7 +64,7 @@ pub async fn backup_for_root(config: &Config, args: &ArgMatches<'_>, path: PathB
     let net_executor = threadpool::Builder::new()
         .pool_size(max(1, num_cpus::get()))
         .build();
-    let rate_limiter = Arc::new(RateLimiter::new());
+    let rate_limiter = Arc::new(RateLimiter::new(&config));
     let keep_existing = args.is_present("keep-existing");
     while let Some(item) = dir_diff.next().await {
         let item = item?;

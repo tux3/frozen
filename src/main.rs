@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::box_result::BoxResult;
-use clap::{Arg, App, SubCommand, ArgMatches};
+use clap::{Arg, App, SubCommand};
 use std::process::exit;
 
 mod box_result;
