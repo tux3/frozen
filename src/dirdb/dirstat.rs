@@ -66,6 +66,14 @@ impl DirStat {
         hasher.variable_result(|hash| result.content_hash.copy_from_slice(hash));
         Ok(result)
     }
+
+    pub fn compute_direct_files_count(&self) -> u64 {
+        let subfolder_files_count = self.subfolders.iter().fold(0, |sum, e|
+            sum + e.total_files_count
+        );
+        // File counts may be inaccurate due to pessimistic DirDBs or TOCTOU, could underflow
+        self.total_files_count.saturating_sub(subfolder_files_count)
+    }
 }
 
 impl PartialEq for DirStat {

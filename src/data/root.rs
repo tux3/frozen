@@ -11,7 +11,6 @@ use serde::{Serialize, Deserialize};
 use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
 use crate::net::b2;
-use crate::net::upload::UploadThread;
 use crate::net::download::DownloadThread;
 use crate::net::delete::DeleteThread;
 use crate::config::Config;
@@ -69,10 +68,6 @@ impl BackupRoot {
         Ok(files)
     }
 
-    pub fn start_upload_threads(&self, b2: &b2::B2, config: &Config, source_path: &Path,) -> Vec<UploadThread> {
-        (0..config.upload_threads).map(|_| UploadThread::new(self, b2, config, source_path)).collect()
-    }
-
     pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &Path) -> Vec<DownloadThread> {
         (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
     }
@@ -86,8 +81,7 @@ impl BackupRoot {
         let lock_path_prefix = self.path_hash.to_owned()+".lock.";
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
 
-        let data_reader = ProgressDataReader::new_silent(Vec::new());
-        let lock_version = b2.upload_file(&lock_path, data_reader, None).await?;
+        let lock_version = b2.upload_file_simple(&lock_path, Vec::new()).await?;
         let locks = b2.list_remote_file_versions(&lock_path_prefix).await;
         self.lock = Some((lock_version, b2.clone()));
 
@@ -152,8 +146,7 @@ pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error +
 pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> Result<(), Box<dyn Error + 'static>> {
     let plain_data = serialize(roots)?;
     let data = crypto::encrypt(&plain_data, &b2.key);
-    let data_reader = ProgressDataReader::new_silent(data);
-    b2.upload_file("backup_root", data_reader, None).await?;
+    b2.upload_file_simple("backup_root", data).await?;
     Ok(())
 }
 

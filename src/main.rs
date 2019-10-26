@@ -12,6 +12,7 @@ mod signal;
 mod crypto;
 mod data;
 mod dirdb;
+mod action;
 
 #[tokio::main]
 async fn async_main() -> BoxResult<()> {

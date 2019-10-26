@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;

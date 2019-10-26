@@ -2,7 +2,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use super::{DirStat};
 
 pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat {
-    debug_assert_eq!(local.dir_name_hash, remote.dir_name_hash);
+    debug_assert!(remote.dir_name_hash == local.dir_name_hash || remote.dir_name_hash == [0; 8]);
 
     let content_hash = if local.content_hash == remote.content_hash {
         remote.content_hash

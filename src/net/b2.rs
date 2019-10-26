@@ -19,12 +19,8 @@ use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
 use crate::termio::progress::{ProgressDataReader, Progress};
 
-thread_local! {
-    static THREADLOCAL_UPLOAD_AUTH: RefCell<Option<B2Upload>> = RefCell::new(None);
-}
-
 #[derive(Clone, PartialEq)]
-struct B2Upload {
+pub struct B2Upload {
     pub upload_url: String,
     pub auth_token: String,
 }
@@ -301,7 +297,7 @@ impl B2 {
         Ok(files)
     }
 
-    async fn get_upload_url(&self) -> Result<B2Upload, Box<dyn Error>> {
+    pub async fn get_upload_url(&self) -> Result<B2Upload, Box<dyn Error>> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
                 .header(AUTHORIZATION, self.auth_token.clone())
@@ -343,26 +339,15 @@ impl B2 {
         Ok(())
     }
 
-    pub async fn upload_file<'a>(&'a self, filename: &'a str,
-                             data: ProgressDataReader,
+    pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
+        let data_reader = ProgressDataReader::new_silent(data);
+        let upload_url = self.get_upload_url().await?;
+        self.upload_file(&upload_url, filename, data_reader, None).await
+    }
+
+    pub async fn upload_file(&self, B2Upload{upload_url, auth_token}: &B2Upload,
+                             filename: &str, data: ProgressDataReader,
                              enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
-
-        let upload_auth_opt = THREADLOCAL_UPLOAD_AUTH.with(|cell| {
-            let url = cell.borrow_mut();
-            if url.is_some() {
-                url.clone()
-            } else {
-                None
-            }
-        });
-        let B2Upload{upload_url, auth_token} = if let Some(auth) = upload_auth_opt {
-            auth
-        } else {
-            let auth = self.get_upload_url().await?;
-            THREADLOCAL_UPLOAD_AUTH.with(|cell| cell.replace(Some(auth.clone())));
-            auth
-        };
-
         let enc_meta = if enc_meta.is_some() {
             enc_meta.as_ref().unwrap().to_owned()
         } else {
@@ -374,7 +359,7 @@ impl B2 {
         let (status, body) = self.request_with_backoff(|| {
             let data_stream = Box::new(data.clone()) as Box<dyn Stream<Item=Result<Chunk, Box<(dyn std::error::Error + Sync + Send + 'static)>>> + Send + Sync + 'static>;
             let sha1 = crypto::sha1_string(data.as_slice());
-            Request::post(&upload_url)
+            Request::post(upload_url)
                 .header(AUTHORIZATION, &auth_token as &str)
                 .header(CONNECTION, "keep-alive")
                 .header(CONTENT_TYPE, "application/octet-stream")
@@ -393,10 +378,10 @@ impl B2 {
         };
 
         if !status.is_success() {
-            THREADLOCAL_UPLOAD_AUTH.with(|cell| cell.replace(None));
-            return Err(From::from(format!("upload_file failed with error {}: {}",
+            return Err(From::from(format!("upload_file failed with error {}: {}, {}",
                                           status.as_u16(),
-                                          reply_json["code"])));
+                                          reply_json["code"],
+                                          reply_json["message"])));
         }
 
         Ok(RemoteFileVersion {

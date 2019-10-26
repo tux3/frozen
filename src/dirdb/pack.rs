@@ -43,9 +43,7 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Res
         ..Default::default()
     };
 
-    let direct_files_count = stat.total_files_count - stat.subfolders.iter().fold(0, |sum, e|
-        sum + e.total_files_count
-    );
+    let direct_files_count = stat.compute_direct_files_count();
 
     let no_direct_files = direct_files_count == 0;
     let mut need_folder_full_path = parent_has_no_files;
@@ -144,9 +142,7 @@ fn best_encoding_settings(stat: &DirStat, info: &PackingInfo) -> EncodingSetting
         subdirs_counts: best_encoding(stat, &|stat| stat.subfolders.len() as u64,
                                            &|stat| &stat.subfolders[..]),
         file_counts: best_encoding(stat, &|stat| {
-            stat.total_files_count - stat.subfolders.iter().fold(0, |sum, e|
-                sum + e.total_files_count
-            )
+            stat.compute_direct_files_count()
         }, &|stat| &stat.subfolders[..]),
         dirname_counts: best_encoding(info, &|info| {
             match info.dir_name.as_ref() {
@@ -253,9 +249,7 @@ impl DirStat {
     }
 
     fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> Result<(), Box<dyn Error>> {
-        let direct_files_count = self.total_files_count - self.subfolders.iter().fold(0, |sum, e|
-            sum + e.total_files_count
-        );
+        let direct_files_count = self.compute_direct_files_count();
 
         if info.dir_name.is_none() {
             writer.write_all(&self.dir_name_hash)?;
@@ -293,9 +287,7 @@ impl DirStat {
         {
             let mut file_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.file_counts);
             Self::serialize_numeric_bitstream(self, &mut file_count_bitstream_writer, &|stat| {
-                stat.total_files_count - stat.subfolders.iter().fold(0, |sum, e|
-                    sum + e.total_files_count
-                )
+                stat.compute_direct_files_count()
             }, &|folder| &folder.subfolders[..])?;
         }
 

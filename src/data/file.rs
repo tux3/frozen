@@ -43,18 +43,20 @@ impl LocalFile {
         })
     }
 
-    pub fn is_symlink(&self, root_path: &Path) -> Result<bool, Box<dyn Error>> {
-        let fullpath = root_path.join(&self.rel_path);
-        Ok(fs::symlink_metadata(fullpath)?.file_type().is_symlink())
+    fn full_path(&self, root_path: &Path) -> PathBuf {
+        root_path.join(&self.rel_path)
     }
 
-    pub fn readlink(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
-        let fullpath = root_path.join(&self.rel_path);
-        Ok(Vec::from(fs::read_link(fullpath)?.to_str().unwrap().as_bytes()))
+    pub fn is_symlink_at(&self, root_path: &Path) -> Result<bool, Box<dyn Error>> {
+        Ok(fs::symlink_metadata(self.full_path(root_path))?.file_type().is_symlink())
     }
 
-    pub fn read_all(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
-        Ok(fs::read(root_path.join(&self.rel_path))?)
+    pub fn readlink_at(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+        Ok(Vec::from(fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes()))
+    }
+
+    pub fn read_all_at(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+        Ok(fs::read(self.full_path(root_path))?)
     }
 }
 

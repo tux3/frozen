@@ -1,7 +1,8 @@
 use futures_intrusive::sync::{Semaphore, SemaphoreReleaser};
 use crossbeam::queue::ArrayQueue;
 use crate::config::Config;
-pub use self::data_permit::DataPermit;
+use crate::net::b2::B2Upload;
+pub use self::data_permit::RateLimitPermit;
 
 mod data_permit;
 
@@ -9,7 +10,7 @@ pub struct RateLimiter {
     download_sem: Semaphore,
     delete_sem: Semaphore,
     upload_sem: Semaphore,
-    upload_urls: ArrayQueue<Option<String>>,
+    upload_urls: ArrayQueue<Option<B2Upload>>,
 }
 
 impl RateLimiter {
@@ -27,9 +28,9 @@ impl RateLimiter {
         }
     }
 
-    pub async fn borrow_upload_permit(&self) -> DataPermit<'_, String> {
+    pub async fn borrow_upload_permit(&self) -> RateLimitPermit<'_, B2Upload> {
         let releaser = self.upload_sem.acquire(1).await;
-        DataPermit::new(releaser, &self.upload_urls)
+        RateLimitPermit::new(releaser, &self.upload_urls)
     }
 
     pub async fn borrow_download_permit(&self) -> SemaphoreReleaser<'_> {
