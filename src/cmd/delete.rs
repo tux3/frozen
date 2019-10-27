@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::time::Duration;
+use std::sync::Arc;
+use std::path::Path;
 use clap::ArgMatches;
 use ignore_result::Ignore;
 use crate::config::Config;
@@ -7,8 +9,10 @@ use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
 use crate::termio::progress;
 use crate::signal::*;
+use crate::action::{self, scoped_runtime};
+use crate::net::rate_limiter::RateLimiter;
 
-pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<(), Box<dyn Error + 'static>> {
     let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 
@@ -20,64 +24,48 @@ pub async fn delete<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<
 
     println!("Deleting backup folder {}", path.display());
 
-    let root = root::open_root(&b2, &mut roots, &path).await?;
-    delete_files(config, &mut b2, &root).await?;
+    let mut root = root::open_root(&b2, &mut roots, &path).await?;
+    let result = delete_one_root(config, &mut b2, &path, &root, &mut roots).await;
 
-    root::delete_root(&mut b2, &mut roots, &path).await
+    root.unlock().await?;
+    result
 }
 
-async fn delete_files<'a>(config: &'a Config, b2: &'a mut B2,
-                root: &'a root::BackupRoot)
+async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
+                root: &root::BackupRoot, roots: &mut Vec<root::BackupRoot>)
         -> Result<(), Box<dyn Error + 'static>> {
     err_on_signal()?;
+
+    // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
+    let dirdb_path = "dirdb/".to_string()+&root.path_hash;
+    b2.hide_file(&dirdb_path).await?;
 
     println!("Listing remote files");
     let rfiles = root.list_remote_files(b2).await?;
 
-    // Delete all remote files
-    let mut delete_threads = root.start_delete_threads(b2, config);
-    progress::start_output(config.verbose, delete_threads.len());
+    // Give it some time to commit the hide before listing versions (best effort)
+    let dirdb_versions = b2.list_remote_file_versions(&dirdb_path).await?;
+    println!("Deleting {} versions of the DirDB", dirdb_versions.len());
+    for dirdb_version in dirdb_versions.iter().rev() {
+        b2.delete_file_version(&dirdb_version).await?;
+    }
 
+    let num_threads = num_cpus::get().max(1);
+    // This is scoped to shutdown when we're done running actions on the folder
+    let action_runtime = scoped_runtime::Builder::new()
+        .name_prefix("delete-")
+        .pool_size(num_threads)
+        .build()?;
+    progress::start_output(config.verbose, num_threads);
+
+    let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
-        'delete_send: loop {
-            for thread in &mut delete_threads {
-                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
-                    break 'delete_send;
-                }
-            }
-            err_on_signal()?;
-            progress::handle_progress(config.verbose, &mut delete_threads).await;
-            //Delay::new(Duration::from_millis(20)).await.ignore();
-        }
+        action_runtime.spawn(action::delete(rate_limiter.clone(), root.clone(), b2.clone(), rfile));
         err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut delete_threads).await;
     }
+    action_runtime.shutdown_on_idle().await;
 
-    // Tell our delete threads to stop as they become idle
-    let mut thread_id = delete_threads.len() - 1;
-    loop {
-        err_on_signal()?;
-        if thread_id < delete_threads.len() {
-            let result = &delete_threads[thread_id].tx.try_send(None);
-            if result.is_err() {
-                progress::handle_progress(config.verbose, &mut delete_threads).await;
-                //Delay::new(Duration::from_millis(20)).await.ignore();
-                continue;
-            }
-        }
-
-        if thread_id == 0 {
-            break;
-        } else {
-            thread_id -= 1;
-        }
-    }
-
-    while !delete_threads.is_empty() {
-        err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut delete_threads).await;
-        //Delay::new(Duration::from_millis(20)).await.ignore();
-    }
+    root::delete_root(b2, roots, &path).await?;
 
     Ok(())
 }

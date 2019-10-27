@@ -1,11 +1,11 @@
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, mpsc::Receiver};
 use std::cmp::max;
 use clap::ArgMatches;
 use futures::stream::StreamExt;
 use tokio_executor::threadpool;
-use crate::action::{scoped_runtime, upload};
+use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
 use crate::config::Config;
@@ -44,7 +44,7 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
         eprintln!("Error: Failed to unlock the backup root (Arc still has {} holders!)", Arc::strong_count(&arc_root));
     }
 
-    return result;
+    result
 }
 
 pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, b2: Arc<b2::B2>, root: Arc<BackupRoot>) -> BoxResult<()> {
@@ -57,7 +57,7 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
     let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), local_dirdb.clone(), remote_dirdb)?;
     let path = Arc::new(path);
 
-    println!("Uploading pessimistic dirdb");
+    println!("Uploading pessimistic DirDB");
     let dirdb_data = dir_diff.get_pessimistic_dirdb_data(&b2.key)?;
     b2.upload_file_simple(&dirdb_path, dirdb_data).await?;
 
@@ -76,11 +76,9 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
 
         match item {
             FileDiff{local: None, remote: Some(rfile)} => {
-                if keep_existing {
-                    continue
+                if !keep_existing {
+                    action_runtime.spawn(action::delete(rate_limiter.clone(), root.clone(), b2.clone(), rfile));
                 }
-                println!("# Would delete {}", rfile.rel_path.display());
-                //worker_runtime.spawn(delete(arc_root.clone(), arc_b2.clone(), rfile))
             },
             FileDiff{local: Some(lfile), remote} => {
                 if let Some(rfile) = remote {
@@ -88,7 +86,7 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
                         continue
                     }
                 }
-                action_runtime.spawn(upload(rate_limiter.clone(), root.clone(), b2.clone(), config.compression_level, path.clone(), lfile));
+                action_runtime.spawn(action::upload(rate_limiter.clone(), root.clone(), b2.clone(), config.compression_level, path.clone(), lfile));
             },
             FileDiff{local: None, remote: None} => unreachable!()
         }
@@ -96,58 +94,6 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
     action_runtime.shutdown_on_idle().await;
 
     b2.upload_file_simple(&dirdb_path, local_dirdb.to_packed(&b2.key)?).await?;
-
-    Ok(())
-}
-
-/// Delete remote files that were removed locally
-async fn delete_dead_remote_files<'a>(config: &'a Config,
-                                      b2: &'a mut b2::B2,
-                                      root: &'a BackupRoot,
-                                      rfiles: &'a [RemoteFile]) -> Result<(), Box<dyn Error + 'static>> {
-    let mut delete_threads = root.start_delete_threads(b2, config);
-    progress::start_output(config.verbose, delete_threads.len());
-
-    for rfile in rfiles {
-        'delete_send: loop {
-            for thread in &mut delete_threads {
-                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
-                    break 'delete_send;
-                }
-            }
-            err_on_signal()?;
-            progress::handle_progress(config.verbose, &mut delete_threads).await;
-            //Delay::new(Duration::from_millis(20)).await.ignore();
-        }
-        err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut delete_threads).await;
-    }
-
-    // Tell our delete threads to stop as they become idle
-    let mut thread_id = delete_threads.len() - 1;
-    loop {
-        err_on_signal()?;
-        if thread_id < delete_threads.len() {
-            let result = &delete_threads[thread_id].tx.try_send(None);
-            if result.is_err() {
-                progress::handle_progress(config.verbose, &mut delete_threads).await;
-                //Delay::new(Duration::from_millis(20)).await.ignore();
-                continue;
-            }
-        }
-
-        if thread_id == 0 {
-            break;
-        } else {
-            thread_id -= 1;
-        }
-    }
-
-    while !delete_threads.is_empty() {
-        err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut delete_threads).await;
-        //Delay::new(Duration::from_millis(20)).await.ignore();
-    }
 
     Ok(())
 }

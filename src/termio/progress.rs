@@ -16,6 +16,7 @@ static PROGRESS_VERBOSE_FLAG: AtomicBool = AtomicBool::new(false);
 static PROGRESS_NUM_THREADS: AtomicU16 = AtomicU16::new(0);
 static PROGRESS_THREADS_WITH_ID: AtomicU16 = AtomicU16::new(0);
 
+// FIXME: The thread_local is broken with futures, concurrent futures can share the same thread...
 thread_local! {
     static PROGRESS_CUR_THREAD_ID: u16 = PROGRESS_THREADS_WITH_ID.fetch_add(1, Ordering::SeqCst);
 }

@@ -12,7 +12,6 @@ use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
 use crate::net::b2;
 use crate::net::download::DownloadThread;
-use crate::net::delete::DeleteThread;
 use crate::config::Config;
 use crate::termio::progress::ProgressDataReader;
 
@@ -70,10 +69,6 @@ impl BackupRoot {
 
     pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &Path) -> Vec<DownloadThread> {
         (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
-    }
-
-    pub fn start_delete_threads(&self, b2: &b2::B2, config: &Config) -> Vec<DeleteThread> {
-        (0..config.delete_threads).map(|_| DeleteThread::new(self, b2)).collect()
     }
 
     pub async fn lock<'a>(&'a mut self, b2: &'a b2::B2) -> Result<(), Box<dyn Error + 'static>> {

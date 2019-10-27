@@ -52,6 +52,7 @@ impl Clone for B2 {
 }
 
 async fn warning(maybe_progress: &Option<Sender<Progress>>, msg: &str) {
+    // FIXME: With the new implementation, we never *have* a tx_progress! Fix output.
     match maybe_progress {
         Some(progress) => {
             let mut progress = progress.clone();
