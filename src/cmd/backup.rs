@@ -91,9 +91,10 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
             FileDiff{local: None, remote: None} => unreachable!()
         }
     };
+    let packed_local_dirdb = local_dirdb.to_packed(&b2.key)?;
     action_runtime.shutdown_on_idle().await;
 
-    b2.upload_file_simple(&dirdb_path, local_dirdb.to_packed(&b2.key)?).await?;
+    b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
 
     Ok(())
 }
