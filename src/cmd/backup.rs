@@ -14,7 +14,7 @@ use crate::data::root::{self, BackupRoot};
 use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::path_from_arg;
 use crate::dirdb::{DirDB, diff::DirDiff, diff::FileDiff};
-use crate::termio::progress::{self, ProgressDataReader};
+use crate::termio::progress::{self, ProgressDataReader, progress_errors_count};
 use crate::signal::*;
 
 pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
@@ -94,7 +94,11 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
     let packed_local_dirdb = local_dirdb.to_packed(&b2.key)?;
     action_runtime.shutdown_on_idle().await;
 
-    b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
-
-    Ok(())
+    let errors_count = progress_errors_count();
+    if errors_count == 0 {
+        b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
+        Ok(())
+    } else {
+        Err(From::from(format!("Finished with {} error(s)", errors_count)))
+    }
 }

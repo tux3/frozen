@@ -67,5 +67,10 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
 
     root::delete_root(b2, roots, &path).await?;
 
-    Ok(())
+    let errors_count = progress::progress_errors_count();
+    if errors_count == 0 {
+        Ok(())
+    } else {
+        Err(From::from(format!("Finished with {} error(s)", errors_count)))
+    }
 }

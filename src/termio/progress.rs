@@ -3,7 +3,7 @@ use std::io::{self, stdout, Write, Read, ErrorKind};
 use std::error::Error;
 use std::cmp;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use futures::task::Context;
 use pretty_bytes::converter::convert;
 use bytes::Bytes;
@@ -15,6 +15,7 @@ use super::vt100::*;
 static PROGRESS_VERBOSE_FLAG: AtomicBool = AtomicBool::new(false);
 static PROGRESS_NUM_THREADS: AtomicU16 = AtomicU16::new(0);
 static PROGRESS_THREADS_WITH_ID: AtomicU16 = AtomicU16::new(0);
+static PROGRESS_ERRORS_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // FIXME: The thread_local is broken with futures, concurrent futures can share the same thread...
 thread_local! {
@@ -122,9 +123,15 @@ pub fn start_output(verbose: bool, num_threads: usize) {
     PROGRESS_VERBOSE_FLAG.store(verbose, Ordering::Release);
     PROGRESS_NUM_THREADS.store(num_threads as u16, Ordering::Release);
     PROGRESS_THREADS_WITH_ID.store(0, Ordering::Release);
+    PROGRESS_ERRORS_COUNT.store(0, Ordering::Release);
     for thread_id in 0..num_threads {
         println!("{} Waiting to transfer...", num_threads-thread_id);
     }
+}
+
+/// Returns the number of progress errors logged since the output started
+pub fn progress_errors_count() -> usize {
+    PROGRESS_ERRORS_COUNT.load(Ordering::Acquire)
 }
 
 /// This makes use of VT100, so don't mix with regular print functions
@@ -154,6 +161,7 @@ fn progress_output_with_thread_id(progress: &Progress, thread_id: u16) {
             insert_at(&mut lock, num_threads, VT100::StyleWarning, &format!("Warning: {}", str));
         },
         Error(str) => {
+            PROGRESS_ERRORS_COUNT.fetch_add(1, Ordering::AcqRel);
             rewrite_at(&mut lock, off, VT100::StyleActive,               "Done               ");
             insert_at(&mut lock, num_threads, VT100::StyleError, &format!("Error: {}", str));
         },

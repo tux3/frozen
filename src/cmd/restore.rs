@@ -81,5 +81,10 @@ pub async fn restore_one_root(config: &Config, args: &ArgMatches<'_>, path: Path
     };
     action_runtime.shutdown_on_idle().await;
 
-    Ok(())
+    let errors_count = progress::progress_errors_count();
+    if errors_count == 0 {
+        Ok(())
+    } else {
+        Err(From::from(format!("Finished with {} error(s)", errors_count)))
+    }
 }
