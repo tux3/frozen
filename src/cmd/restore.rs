@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fs;
-use std::time::Duration;
+use std::sync::Arc;
+use std::path::PathBuf;
+use futures::stream::StreamExt;
 use clap::ArgMatches;
 use ignore_result::Ignore;
 use crate::config::Config;
@@ -8,8 +10,11 @@ use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
 use crate::termio::progress;
 use crate::signal::*;
+use crate::dirdb::{DirDB, diff::{FileDiff, DirDiff}};
+use crate::action::{self, scoped_runtime};
+use crate::net::rate_limiter::RateLimiter;
 
-pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> Result<(), Box<dyn Error + 'static>> {
     let path = path_from_arg(args, "source")?;
     let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
     fs::create_dir_all(&target)?;
@@ -21,72 +26,60 @@ pub async fn restore<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
-
-    println!("Opening backup folder {}", path.display());
     let root = root::open_root(&b2, &mut roots, &path).await?;
 
-    println!("Starting to list local files");
-    let (lfiles_rx, list_thread) = root.list_local_files_async(&b2, &target)?;
-    err_on_signal()?;
+    let arc_b2 = Arc::new(b2.clone());
+    let mut arc_root = Arc::new(root.clone());
+    let arc_path = Arc::new(path.clone());
 
-    println!("Listing remote files");
-    let mut rfiles = root.list_remote_files(&b2).await?;
-    err_on_signal()?;
+    let result = restore_one_root(config, args, path, target, arc_b2, arc_root.clone()).await;
+
+    if let Some(root) = Arc::get_mut(&mut arc_root) {
+        root.unlock().await?;
+    } else {
+        eprintln!("Error: Failed to unlock the backup root (Arc still has {} holders!)", Arc::strong_count(&arc_root));
+    }
+
+    result
+}
+
+pub async fn restore_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, target: PathBuf,
+                              b2: Arc<B2>, root: Arc<root::BackupRoot>) -> Result<(), Box<dyn Error + 'static>> {
+    println!("Starting diff");
+    let target_dirdb = Arc::new(DirDB::new_from_local(&target)?);
+    let dirdb_path = "dirdb/".to_string()+&root.path_hash;
+    let remote_dirdb = b2.download_file(&dirdb_path).await.and_then(|data| {
+        DirDB::new_from_packed(&data, &b2.key)
+    }).ok();
+    let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), target_dirdb.clone(), remote_dirdb)?;
+    let target = Arc::new(target);
 
     println!("Starting download");
-    let mut download_threads = root.start_download_threads(&b2, config, &target);
+    let num_threads = num_cpus::get().max(1);
+    progress::start_output(config.verbose, num_threads);
+    // This is scoped to shutdown when we're done running actions on the backup folder
+    let action_runtime = scoped_runtime::Builder::new()
+        .name_prefix("restore-")
+        .pool_size(num_threads)
+        .build()?;
+    let rate_limiter = Arc::new(RateLimiter::new(&config));
+    while let Some(item) = dir_diff.next().await {
+        let item = item?;
 
-    progress::start_output(config.verbose, download_threads.len());
-
-    for file in lfiles_rx {
-        let rfile = rfiles.binary_search_by(|v| v.cmp_local(&file));
-        if rfile.is_ok() && rfiles[rfile.unwrap()].last_modified <= file.last_modified {
-            rfiles.remove(rfile.unwrap());
-        }
-        err_on_signal()?;
-    }
-
-    for rfile in rfiles {
-        'send: loop {
-            for thread in &mut download_threads {
-                if thread.tx.try_send(Some(rfile.clone())).is_ok() {
-                    break 'send;
+        match item {
+            FileDiff{local, remote: Some(rfile)} => {
+                if let Some(lfile) = local {
+                    if lfile.last_modified >= rfile.last_modified {
+                        continue
+                    }
                 }
-            }
-            err_on_signal()?;
-            progress::handle_progress(config.verbose, &mut download_threads).await;
-            //Delay::new(Duration::from_millis(20)).await.ignore();
+                action_runtime.spawn(action::download(rate_limiter.clone(), root.clone(), b2.clone(), target.clone(), rfile));
+            },
+            FileDiff{local: Some(_), remote: None} => (),
+            FileDiff{local: None, remote: None} => unreachable!()
         }
-        err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut download_threads).await;
-    }
-
-    // Tell our threads to stop as they become idle
-    let mut thread_id = download_threads.len() - 1;
-    loop {
-        err_on_signal()?;
-        if thread_id < download_threads.len() {
-            let result = &download_threads[thread_id].tx.try_send(None);
-            if result.is_err() {
-                progress::handle_progress(config.verbose, &mut download_threads).await;
-                //Delay::new(Duration::from_millis(20)).await.ignore();
-                continue;
-            }
-        }
-
-        if thread_id == 0 {
-            break;
-        } else {
-            thread_id -= 1;
-        }
-    }
-
-    while !download_threads.is_empty() {
-        err_on_signal()?;
-        progress::handle_progress(config.verbose, &mut download_threads).await;
-        //Delay::new(Duration::from_millis(20)).await.ignore();
-    }
-    list_thread.join().unwrap();
+    };
+    action_runtime.shutdown_on_idle().await;
 
     Ok(())
 }

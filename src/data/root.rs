@@ -11,7 +11,6 @@ use serde::{Serialize, Deserialize};
 use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
 use crate::net::b2;
-use crate::net::download::DownloadThread;
 use crate::config::Config;
 use crate::termio::progress::ProgressDataReader;
 
@@ -65,10 +64,6 @@ impl BackupRoot {
         let mut files = b2.list_remote_files(&path).await?;
         files.sort();
         Ok(files)
-    }
-
-    pub fn start_download_threads(&self, b2: &b2::B2, config: &Config, target: &Path) -> Vec<DownloadThread> {
-        (0..config.download_threads).map(|_| DownloadThread::new(self, b2, target)).collect()
     }
 
     pub async fn lock<'a>(&'a mut self, b2: &'a b2::B2) -> Result<(), Box<dyn Error + 'static>> {
