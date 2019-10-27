@@ -30,8 +30,14 @@ impl DirDB {
     }
 
     pub fn new_from_local(path: &Path) -> Result<Self, Box<dyn Error>> {
+        let mut root = DirStat::new(path, path)?;
+
+        // It'd be meaningless for the root dir to have a name relative to itself!
+        root.dir_name = None;
+        root.dir_name_hash = [0; 8];
+
         Ok(Self {
-            root: DirStat::new(path, path)?,
+            root,
         })
     }
 
