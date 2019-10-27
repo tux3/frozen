@@ -51,7 +51,7 @@ impl Clone for B2 {
     }
 }
 
-async fn warning<'a>(maybe_progress: &'a Option<Sender<Progress>>, msg: &'a str) {
+async fn warning(maybe_progress: &Option<Sender<Progress>>, msg: &str) {
     match maybe_progress {
         Some(progress) => {
             let mut progress = progress.clone();
@@ -73,7 +73,7 @@ fn make_client() -> Client<HttpsConnector<HttpConnector>> {
 }
 
 impl B2 {
-    async fn request_with_backoff<'a, F: 'a>(&'a self, req_builder: F) -> Result<(StatusCode, Chunk), Box<dyn Error + 'static>>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> Result<(StatusCode, Chunk), Box<dyn Error + 'static>>
         where F: Fn() -> Request<Body>
     {
         let mut attempts = 0;
@@ -106,7 +106,7 @@ impl B2 {
         }
     }
 
-    pub async fn authenticate<'a>(config: &'a Config, keys: &'a AppKeys) -> Result<B2, Box<dyn Error + 'static>> {
+    pub async fn authenticate(config: &Config, keys: &AppKeys) -> Result<B2, Box<dyn Error + 'static>> {
         let client = make_client();
         let basic_auth = make_basic_auth(keys);
         let bucket_name = config.bucket_name.to_owned();
@@ -154,7 +154,7 @@ impl B2 {
         Ok(b2)
     }
 
-    async fn get_bucket_id<'a>(&'a self, bucket_name: &'a str) -> Result<String, Box<dyn Error + 'static>> {
+    async fn get_bucket_id(&self, bucket_name: &str) -> Result<String, Box<dyn Error + 'static>> {
         let bucket_name = bucket_name.to_owned(); // Can't wait for the Pin API!
 
         let (status, body) = self.request_with_backoff(||
@@ -187,7 +187,7 @@ impl B2 {
         Err(From::from(format!("Bucket '{}' not found", bucket_name)))
     }
 
-    pub async fn list_remote_files<'a>(&'a self, prefix: &'a str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
+    pub async fn list_remote_files(&self, prefix: &str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
         let url = self.api_url.clone()+"/b2api/v2/b2_list_file_names";
 
         let body_base = format!("\"bucketId\":\"{}\",\
@@ -237,7 +237,7 @@ impl B2 {
         Ok(files)
     }
 
-    pub async fn list_remote_file_versions<'a>(&'a self, prefix: &'a str)
+    pub async fn list_remote_file_versions(&self, prefix: &str)
                     -> Result<Vec<RemoteFileVersion>, Box<dyn Error + 'static>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_versions";
 
@@ -320,7 +320,7 @@ impl B2 {
         })
     }
 
-    pub async fn delete_file_version<'a>(&'a self, file_version: &'a RemoteFileVersion) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> Result<(), Box<dyn Error + 'static>> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_delete_file_version")
                 .header(AUTHORIZATION, self.auth_token.clone())
@@ -390,7 +390,7 @@ impl B2 {
         })
     }
 
-    pub async fn download_file<'a>(&'a self, filename: &'a str) -> Result<Vec<u8>, Box<dyn Error + 'static>> {
+    pub async fn download_file(&self, filename: &str) -> Result<Vec<u8>, Box<dyn Error + 'static>> {
         let filename = filename.to_owned();
         let (status, body) = self.request_with_backoff(||
             Request::get(self.bucket_download_url.clone() + &filename)
@@ -408,7 +408,7 @@ impl B2 {
         Ok(body.to_vec())
     }
 
-    pub async fn hide_file<'a>(&'a self, file_path_hash: &'a str) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn hide_file(&self, file_path_hash: &str) -> Result<(), Box<dyn Error + 'static>> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_hide_file")
                 .header(AUTHORIZATION, self.auth_token.clone())
