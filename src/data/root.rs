@@ -12,7 +12,8 @@ use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
 use crate::net::b2;
 use crate::config::Config;
-use crate::termio::progress::ProgressDataReader;
+use crate::progress::ProgressDataReader;
+use crate::box_result::BoxResult;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BackupRoot {
@@ -51,11 +52,11 @@ impl BackupRoot {
         }
     }
 
-    pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
+    pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> BoxResult<Vec<RemoteFile>> {
         self.list_remote_files_at(b2, "").await
     }
 
-    pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
+    pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> BoxResult<Vec<RemoteFile>> {
         if self.lock.is_none() {
             return Err(From::from("Cannot list remote files, backup root isn't locked!"));
         }
@@ -66,7 +67,7 @@ impl BackupRoot {
         Ok(files)
     }
 
-    pub async fn lock<'a>(&'a mut self, b2: &'a b2::B2) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn lock<'a>(&'a mut self, b2: &'a b2::B2) -> BoxResult<()> {
         let rand_str = HEXLOWER_PERMISSIVE.encode(&crypto::randombytes(4));
         let lock_path_prefix = self.path_hash.to_owned()+".lock.";
         let lock_path = lock_path_prefix.to_owned()+&rand_str;
@@ -91,7 +92,7 @@ impl BackupRoot {
         Ok(())
     }
 
-    pub async fn unlock(&mut self) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn unlock(&mut self) -> BoxResult<()> {
         if self.lock.is_none() {
             return Ok(());
         }
@@ -101,7 +102,7 @@ impl BackupRoot {
 }
 
 fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>)
-    -> Result<(), Box<dyn Error>> {
+    -> BoxResult<()> {
     let entries = fs::read_dir(dir);
     if entries.is_err() {
         println!("Couldn't open folder \"{}\": {}", base.join(dir).display(),
@@ -124,7 +125,7 @@ fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<Loca
     Ok(())
 }
 
-pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error + 'static>> {
+pub async fn fetch_roots(b2: &b2::B2) -> BoxResult<Vec<BackupRoot>> {
     let enc_data = match b2.download_file("backup_root").await {
         Ok(enc_data) => enc_data,
         Err(_) => return Ok(Vec::new()),
@@ -133,7 +134,7 @@ pub async fn fetch_roots(b2: &b2::B2) -> Result<Vec<BackupRoot>, Box<dyn Error +
     Ok(deserialize(&data[..]).unwrap())
 }
 
-pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> BoxResult<()> {
     let plain_data = serialize(roots)?;
     let data = crypto::encrypt(&plain_data, &b2.key);
     b2.upload_file_simple("backup_root", data).await?;
@@ -142,7 +143,7 @@ pub async fn save_roots<'a>(b2: &'a b2::B2, roots: &'a[BackupRoot]) -> Result<()
 
 /// Opens an existing backup root, or creates one if necessary
 pub async fn open_create_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
-                                  -> Result<BackupRoot, Box<dyn Error + 'static>> {
+                                  -> BoxResult<BackupRoot> {
     let mut root: BackupRoot;
     if let Some(existing_root) = roots.iter_mut().find(|r| r.path == *path) {
         root = existing_root.clone();
@@ -157,7 +158,7 @@ pub async fn open_create_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>
 }
 
 pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
-                             -> Result<(), Box<dyn Error + 'static>> {
+                             -> BoxResult<()> {
     if roots.iter()
         .position(|r| r.path == path)
         .map(|i| roots.remove(i))
@@ -170,7 +171,7 @@ pub async fn delete_root<'a>(b2: &'a mut b2::B2, roots: &'a mut Vec<BackupRoot>,
 
 /// Opens an existing backup root
 pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path: &'a Path)
-                           -> Result<BackupRoot, Box<dyn Error + 'static>> {
+                           -> BoxResult<BackupRoot> {
     match roots.iter().find(|r| r.path == path) {
         Some(root) => {
             let mut root = root.clone();
@@ -183,7 +184,7 @@ pub async fn open_root<'a>(b2: &'a b2::B2, roots: &'a mut Vec<BackupRoot>, path:
 
 /// Forcibly unlocks a backup root
 pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a[BackupRoot], path: &'a Path)
-                            -> Result<(), Box<dyn Error + 'static>> {
+                            -> BoxResult<()> {
     if let Some(root) = roots.iter().find(|r| r.path == *path) {
         let lock_path_prefix = root.path_hash.to_owned() + ".lock.";
         let locks = b2.list_remote_file_versions(&lock_path_prefix).await?;

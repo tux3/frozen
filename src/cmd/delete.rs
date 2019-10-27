@@ -4,15 +4,17 @@ use std::sync::Arc;
 use std::path::Path;
 use clap::ArgMatches;
 use ignore_result::Ignore;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
-use crate::termio::progress;
 use crate::signal::*;
 use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
+use crate::box_result::BoxResult;
+use crate::progress::{Progress, ProgressType};
 
-pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 
@@ -23,7 +25,6 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<(), Box<dy
     let mut roots = root::fetch_roots(&b2).await?;
 
     println!("Deleting backup folder {}", path.display());
-
     let mut root = root::open_root(&b2, &mut roots, &path).await?;
     let result = delete_one_root(config, &mut b2, &path, &root, &mut roots).await;
 
@@ -32,8 +33,7 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<(), Box<dy
 }
 
 async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
-                root: &root::BackupRoot, roots: &mut Vec<root::BackupRoot>)
-        -> Result<(), Box<dyn Error + 'static>> {
+                root: &root::BackupRoot, roots: &mut Vec<root::BackupRoot>) -> BoxResult<()> {
     err_on_signal()?;
 
     // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
@@ -50,27 +50,30 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
         b2.delete_file_version(&dirdb_version).await?;
     }
 
-    let num_threads = num_cpus::get().max(1);
     // This is scoped to shutdown when we're done running actions on the folder
     let action_runtime = scoped_runtime::Builder::new()
         .name_prefix("delete-")
-        .pool_size(num_threads)
+        .pool_size(num_cpus::get().max(1))
         .build()?;
-    progress::start_output(config.verbose, num_threads);
+    let progress = Progress::new(config.verbose);
+    let delete_progress = progress.show_progress_bar(ProgressType::Delete, rfiles.len());
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
-        action_runtime.spawn(action::delete(rate_limiter.clone(), root.clone(), b2.clone(), rfile));
+        action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(),
+                                            root.clone(), b2.clone(), rfile))?;
         err_on_signal()?;
     }
     action_runtime.shutdown_on_idle().await;
+    delete_progress.finish();
+    progress.join();
 
+    println!("Deleting backup root");
     root::delete_root(b2, roots, &path).await?;
 
-    let errors_count = progress::progress_errors_count();
-    if errors_count == 0 {
+    if progress.is_complete() {
         Ok(())
     } else {
-        Err(From::from(format!("Finished with {} error(s)", errors_count)))
+        Err(From::from(format!("Couldn't complete all operations, {} error(s)", progress.errors_count())))
     }
 }

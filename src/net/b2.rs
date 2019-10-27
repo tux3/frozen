@@ -14,10 +14,13 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE, CONTENT_LENGTH, CONNECTION};
 use hyper_tls::HttpsConnector;
 use serde_json::{self, Value};
 use data_encoding::BASE64_NOPAD;
+use indicatif::ProgressBar;
 use crate::crypto::{self, AppKeys, encode_meta, decode_meta};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
-use crate::termio::progress::{ProgressDataReader, Progress};
+use crate::progress::ProgressDataReader;
+use crate::box_result::BoxResult;
+
 
 #[derive(Clone, PartialEq)]
 pub struct B2Upload {
@@ -33,7 +36,7 @@ pub struct B2 {
     pub api_url: String,
     pub bucket_download_url: String,
     pub client: Client<HttpsConnector<HttpConnector>>,
-    pub tx_progress: Option<Sender<Progress>>,
+    pub tx_progress: Option<ProgressBar>,
 }
 
 impl Clone for B2 {
@@ -51,12 +54,10 @@ impl Clone for B2 {
     }
 }
 
-async fn warning(maybe_progress: &Option<Sender<Progress>>, msg: &str) {
-    // FIXME: With the new implementation, we never *have* a tx_progress! Fix output.
+async fn warning(maybe_progress: &Option<ProgressBar>, msg: &str) {
     match maybe_progress {
         Some(progress) => {
-            let mut progress = progress.clone();
-            progress.send(Progress::Warning(msg.to_owned())).await.unwrap_or(())
+            progress.println(format!("Warning: {}", msg));
         },
         None => println!("Warning: {}", msg),
     }
@@ -70,11 +71,13 @@ fn make_basic_auth(AppKeys{b2_key_id: username, b2_key: password, ..}: &AppKeys)
 
 fn make_client() -> Client<HttpsConnector<HttpConnector>> {
     let https = HttpsConnector::new().unwrap();
-    Client::builder().build::<_, hyper::Body>(https)
+    Client::builder()
+        .keep_alive(false) // Caused hangs when used with spawn_with_handle...
+        .build::<_, hyper::Body>(https)
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(&self, req_builder: F) -> Result<(StatusCode, Chunk), Box<dyn Error + 'static>>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> Result<(StatusCode, Chunk), Box<dyn Error + Send + Sync + 'static>>
         where F: Fn() -> Request<Body>
     {
         let mut attempts = 0;
@@ -107,7 +110,7 @@ impl B2 {
         }
     }
 
-    pub async fn authenticate(config: &Config, keys: &AppKeys) -> Result<B2, Box<dyn Error + 'static>> {
+    pub async fn authenticate(config: &Config, keys: &AppKeys) -> BoxResult<B2> {
         let client = make_client();
         let basic_auth = make_basic_auth(keys);
         let bucket_name = config.bucket_name.to_owned();
@@ -155,7 +158,7 @@ impl B2 {
         Ok(b2)
     }
 
-    async fn get_bucket_id(&self, bucket_name: &str) -> Result<String, Box<dyn Error + 'static>> {
+    async fn get_bucket_id(&self, bucket_name: &str) -> BoxResult<String> {
         let bucket_name = bucket_name.to_owned(); // Can't wait for the Pin API!
 
         let (status, body) = self.request_with_backoff(||
@@ -188,7 +191,7 @@ impl B2 {
         Err(From::from(format!("Bucket '{}' not found", bucket_name)))
     }
 
-    pub async fn list_remote_files(&self, prefix: &str) -> Result<Vec<RemoteFile>, Box<dyn Error + 'static>> {
+    pub async fn list_remote_files(&self, prefix: &str) -> BoxResult<Vec<RemoteFile>> {
         let url = self.api_url.clone()+"/b2api/v2/b2_list_file_names";
 
         let body_base = format!("\"bucketId\":\"{}\",\
@@ -239,7 +242,7 @@ impl B2 {
     }
 
     pub async fn list_remote_file_versions(&self, prefix: &str)
-                    -> Result<Vec<RemoteFileVersion>, Box<dyn Error + 'static>> {
+                    -> BoxResult<Vec<RemoteFileVersion>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_versions";
 
         let body_base = format!("\"bucketId\":\"{}\",\
@@ -298,7 +301,7 @@ impl B2 {
         Ok(files)
     }
 
-    pub async fn get_upload_url(&self) -> Result<B2Upload, Box<dyn Error>> {
+    pub async fn get_upload_url(&self) -> BoxResult<B2Upload> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
                 .header(AUTHORIZATION, self.auth_token.clone())
@@ -321,7 +324,7 @@ impl B2 {
         })
     }
 
-    pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> BoxResult<()> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_delete_file_version")
                 .header(AUTHORIZATION, self.auth_token.clone())
@@ -340,7 +343,7 @@ impl B2 {
         Ok(())
     }
 
-    pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
+    pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> BoxResult<RemoteFileVersion> {
         let data_reader = ProgressDataReader::new_silent(data);
         let upload_url = self.get_upload_url().await?;
         self.upload_file(&upload_url, filename, data_reader, None).await
@@ -348,7 +351,7 @@ impl B2 {
 
     pub async fn upload_file(&self, B2Upload{upload_url, auth_token}: &B2Upload,
                              filename: &str, data: ProgressDataReader,
-                             enc_meta: Option<String>) -> Result<RemoteFileVersion, Box<dyn Error + 'static>> {
+                             enc_meta: Option<String>) -> BoxResult<RemoteFileVersion> {
         let enc_meta = if enc_meta.is_some() {
             enc_meta.as_ref().unwrap().to_owned()
         } else {
@@ -391,7 +394,7 @@ impl B2 {
         })
     }
 
-    pub async fn download_file(&self, filename: &str) -> Result<Vec<u8>, Box<dyn Error + 'static>> {
+    pub async fn download_file(&self, filename: &str) -> BoxResult<Vec<u8>> {
         let filename = filename.to_owned();
         let (status, body) = self.request_with_backoff(||
             Request::get(self.bucket_download_url.clone() + &filename)
@@ -409,7 +412,7 @@ impl B2 {
         Ok(body.to_vec())
     }
 
-    pub async fn hide_file(&self, file_path_hash: &str) -> Result<(), Box<dyn Error + 'static>> {
+    pub async fn hide_file(&self, file_path_hash: &str) -> BoxResult<()> {
         let (status, body) = self.request_with_backoff(||
             Request::post(self.api_url.clone()+"/b2api/v2/b2_hide_file")
                 .header(AUTHORIZATION, self.auth_token.clone())

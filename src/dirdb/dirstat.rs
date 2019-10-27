@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use blake2::VarBlake2b;
 use blake2::digest::{Input, VariableOutput};
-use crate::data::paths::path_to_bytes;
 use super::FileStat;
+use crate::data::paths::path_to_bytes;
+use crate::box_result::BoxResult;
 
 #[derive(Default, Debug)]
 pub struct DirStat {
@@ -23,7 +24,7 @@ pub struct DirStat {
 }
 
 impl DirStat {
-    pub fn new(base_path: &Path, dir_path: &Path) -> Result<Self, Box<dyn Error>> {
+    pub fn new(base_path: &Path, dir_path: &Path) -> BoxResult<Self> {
         let mut hasher = VarBlake2b::new(8)?;
         let mut total_files_count = 0;
         let mut direct_files = Vec::new();
@@ -93,9 +94,10 @@ mod tests {
     use std::error::Error;
     use std::path::Path;
     use self::super::DirStat;
+    use crate::box_result::BoxResult;
 
     #[test]
-    fn count_subfolders() -> Result<(), Box<dyn Error>> {
+    fn count_subfolders() -> BoxResult<()> {
         let path = Path::new("test_data/Folder A/ac");
         let stat = DirStat::new(path, path)?;
         assert_eq!(stat.subfolders.len(), 1);
@@ -110,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn count_hidden_files() -> Result<(), Box<dyn Error>> {
+    fn count_hidden_files() -> BoxResult<()> {
         // There's two regular files and a file starting with a '.'
         let path = Path::new("test_data/Folder B/");
         assert_eq!(DirStat::new(path, path)?.total_files_count, 3);
@@ -118,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_empty_folders() -> Result<(), Box<dyn Error>> {
+    fn keeps_empty_folders() -> BoxResult<()> {
         // Subfolders aa/ and ac/ contain files, but ab/ is empty (and kept in Git as a submodule!)
         let path = Path::new("test_data/Folder A");
         assert_eq!(DirStat::new(path, path)?.subfolders.len(), 3);
@@ -126,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn count_total_files() -> Result<(), Box<dyn Error>> {
+    fn count_total_files() -> BoxResult<()> {
         let path = Path::new("test_data/");
         assert_eq!(DirStat::new(path, path)?.total_files_count, 8);
         Ok(())

@@ -7,12 +7,13 @@ mod box_result;
 mod cmd;
 mod config;
 mod net;
-mod termio;
+mod progress;
 mod signal;
 mod crypto;
 mod data;
 mod dirdb;
 mod action;
+mod prompt;
 
 #[tokio::main]
 async fn async_main() -> BoxResult<()> {

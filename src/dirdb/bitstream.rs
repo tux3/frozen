@@ -29,9 +29,10 @@ pub struct Encoding {
 mod tests {
     use std::error::Error;
     use super::*;
+    use crate::box_result::BoxResult;
 
     #[test]
-    fn roundtrip_raw_bytes() -> Result<(), Box<dyn Error>> {
+    fn roundtrip_raw_bytes() -> BoxResult<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
@@ -53,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_raw_31_bits() -> Result<(), Box<dyn Error>> {
+    fn roundtrip_raw_31_bits() -> BoxResult<()> {
         let to_encode = [0u64, 1, 17, 42, 254, 255, 25519, (std::u16::MAX/2) as u64];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
@@ -75,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_vuint_14_bits() -> Result<(), Box<dyn Error>> {
+    fn roundtrip_vuint_14_bits() -> BoxResult<()> {
         let to_encode = [0u64, 1, 17, 42, 254, 255, std::u32::MAX as u64];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
@@ -97,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_vuint_7_bits() -> Result<(), Box<dyn Error>> {
+    fn roundtrip_vuint_7_bits() -> BoxResult<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
@@ -120,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_vuint_2_bits() -> Result<(), Box<dyn Error>> {
+    fn roundtrip_vuint_2_bits() -> BoxResult<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {

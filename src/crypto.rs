@@ -9,6 +9,7 @@ use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
 use blake2::VarBlake2b;
 use sha1::Sha1;
 use digest::{Digest, Input, VariableOutput};
+use crate::box_result::BoxResult;
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
@@ -54,7 +55,7 @@ pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
     cipher
 }
 
-pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
     if cipher.len() < secretbox::NONCEBYTES {
         return Err(From::from("Decryption failed, input too small"));
     }
@@ -72,7 +73,7 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>, Box<dyn Error>> {
     }
 }
 
-pub fn raw_hash(data: &[u8], output_size: usize, output: &mut [u8]) -> Result<(), Box<dyn Error>> {
+pub fn raw_hash(data: &[u8], output_size: usize, output: &mut [u8]) -> BoxResult<()> {
     let mut hasher = VarBlake2b::new(output_size)?;
     hasher.input(data);
     hasher.variable_result(|result| output.copy_from_slice(result));
@@ -102,7 +103,7 @@ pub fn encode_meta(key: &Key, filename: &Path, time: u64, mode: u32, is_symlink:
     BASE64URL_NOPAD.encode(&encrypt(&encoded, key))
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(PathBuf, u64, u32, bool), Box<dyn Error>> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> BoxResult<(PathBuf, u64, u32, bool)> {
     let data = BASE64URL_NOPAD.decode(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)

@@ -1,6 +1,7 @@
-use super::*;
 use std::io::Write;
 use std::error::Error;
+use super::*;
+use crate::box_result::BoxResult;
 
 pub struct BitstreamWriter<'w, W: Write> {
     writer: &'w mut W,
@@ -31,7 +32,7 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         stream
     }
 
-    fn write_bits(&mut self, mut bits: u64, mut size: usize) -> Result<(), Box<dyn Error>> {
+    fn write_bits(&mut self, mut bits: u64, mut size: usize) -> BoxResult<()> {
         if self.finished {
             return Err(From::from("Cannot write to a bitstream after calling finish()"));
         }
@@ -59,7 +60,7 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         Ok(())
     }
 
-    pub fn write(&mut self, item: u64) -> Result<(), Box<dyn Error>> {
+    pub fn write(&mut self, item: u64) -> BoxResult<()> {
         if self.encoding.bits == 0 {
             return Ok(()); // I mean sure, why not encode an empty bitstream!
         }
@@ -113,9 +114,10 @@ mod tests {
     use std::error::Error;
     use super::BitstreamWriter;
     use super::super::Encoding;
+    use crate::box_result::BoxResult;
 
     #[test]
-    fn write_raw_bytes() -> Result<(), Box<dyn Error>> {
+    fn write_raw_bytes() -> BoxResult<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {
@@ -140,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn write_raw_nibbles() -> Result<(), Box<dyn Error>> {
+    fn write_raw_nibbles() -> BoxResult<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {
@@ -166,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn write_leb128() -> Result<(), Box<dyn Error>> {
+    fn write_leb128() -> BoxResult<()> {
         let to_encode = [0, 1, 17, 42, 127, 128, 254, 255, 25519, std::u64::MAX - 1];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {

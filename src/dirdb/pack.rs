@@ -8,6 +8,7 @@ use blake2::digest::{Input, VariableOutput};
 use zstd::stream::{write::Encoder, read::Decoder};
 use crate::data::paths::path_from_bytes;
 use crate::data::paths::path_to_bytes;
+use crate::box_result::BoxResult;
 
 ///! Very dense custom bitstream format for DirStat objects
 ///! We need a dense format because DirStats are uploaded in full after every change,
@@ -26,7 +27,7 @@ struct EncodingSettings {
     dirname_counts: Encoding,
 }
 
-fn rebuild_content_hash_from_subfolders(rel_path: &Path, stat: &mut DirStat) -> Result<(), Box<dyn Error>> {
+fn rebuild_content_hash_from_subfolders(rel_path: &Path, stat: &mut DirStat) -> BoxResult<()> {
     let mut hasher = VarBlake2b::new(8)?;
     for subfolder in stat.subfolders.iter() {
         let sub_name: &Path = path_from_bytes(subfolder.dir_name.as_ref().unwrap())?;
@@ -38,7 +39,7 @@ fn rebuild_content_hash_from_subfolders(rel_path: &Path, stat: &mut DirStat) -> 
     Ok(())
 }
 
-fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Result<PackingInfo, Box<dyn Error>> {
+fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> BoxResult<PackingInfo> {
     let mut info = PackingInfo {
         ..Default::default()
     };
@@ -67,7 +68,7 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Res
 }
 
 /// Collects info to remove subdir names that are too long or unnecessary
-fn dirnames_packing_info(stat: &DirStat) -> Result<PackingInfo, Box<dyn Error>> {
+fn dirnames_packing_info(stat: &DirStat) -> BoxResult<PackingInfo> {
     let mut info = dirnames_packing_info_inner(stat, false);
     if let Ok(info) = info.as_mut() {
         // The root folder should never serialize its name, it's only the contents we care about.
@@ -159,7 +160,7 @@ impl DirStat {
                                     files_count_stream: &mut BitstreamReader,
                                     subdirs_count_stream: &mut BitstreamReader,
                                     dirname_count_stream: &mut BitstreamReader,
-                                    subdirs_reader: &mut R) -> Result<Self, Box<dyn Error>> {
+                                    subdirs_reader: &mut R) -> BoxResult<Self> {
         let direct_files_count = files_count_stream.read();
         let subfolders_count = subdirs_count_stream.read();
         let dir_name_len = dirname_count_stream.read();
@@ -218,7 +219,7 @@ impl DirStat {
     }
 
     /// Load directory stats from a buffer produced by `serialize_into`
-    pub fn new_from_bytes(reader: &mut &[u8]) -> Result<Self, Box<dyn Error>> {
+    pub fn new_from_bytes(reader: &mut &[u8]) -> BoxResult<Self> {
         let mut files_count_stream =  BitstreamReader::new(reader);
         let mut subdirs_count_stream =  BitstreamReader::new(files_count_stream.slice_after());
         let mut dirname_count_stream =  BitstreamReader::new(subdirs_count_stream.slice_after());
@@ -236,7 +237,7 @@ impl DirStat {
                                  &mut dirnames_reader)
     }
 
-    fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> Result<(), Box<dyn Error>> {
+    fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
         if let Some(dir_name) = info.dir_name {
             writer.write_all(&dir_name)?;
         }
@@ -248,7 +249,7 @@ impl DirStat {
         Ok(())
     }
 
-    fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> Result<(), Box<dyn Error>> {
+    fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
         let direct_files_count = self.compute_direct_files_count();
 
         if info.dir_name.is_none() {
@@ -267,7 +268,7 @@ impl DirStat {
     }
 
     fn serialize_numeric_bitstream<T, F, G, W>(folder: &T, bitstream_writer: &mut BitstreamWriter<W>,
-                                         get_number: &F, get_subfolders: &G) -> Result<(), Box<dyn Error>>
+                                         get_number: &F, get_subfolders: &G) -> BoxResult<()>
         where F: Fn(&T) -> u64, G: Fn(&T) -> &[T], W: Write {
         bitstream_writer.write(get_number(folder))?;
 
@@ -280,7 +281,7 @@ impl DirStat {
 
     /// Serialized the directory stats into a writer.
     /// On error partial data may have been written.
-    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> Result<(), Box<dyn Error>> {
+    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> BoxResult<()> {
         let packing_info = dirnames_packing_info(self)?;
         let encoding_settings = best_encoding_settings(&self, &packing_info);
 
@@ -325,9 +326,10 @@ mod tests {
     use std::error::Error;
     use std::path::Path;
     use crate::dirdb::DirStat;
+    use crate::box_result::BoxResult;
 
     #[test]
-    fn serialize_roundtrip() -> Result<(), Box<dyn Error>> {
+    fn serialize_roundtrip() -> BoxResult<()> {
         let path = Path::new("test_data");
         let stat = DirStat::new(path, path)?;
         let mut serialized = Vec::new();

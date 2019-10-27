@@ -4,8 +4,9 @@ use std::env;
 use std::error::Error;
 use serde::{Serialize, Deserialize};
 use serde_json;
-use crate::termio::{prompt, prompt_password, prompt_yes_no};
+use crate::prompt::{prompt, prompt_password, prompt_yes_no};
 use crate::crypto::{AppKeys, derive_key, decrypt, encrypt};
+use crate::box_result::BoxResult;
 
 static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
 pub static UPLOAD_THREADS_DEFAULT: u16 = 6;
@@ -48,7 +49,7 @@ impl Config {
         config
     }
 
-    pub fn get_app_keys(&self) -> Result<AppKeys, Box<dyn Error>> {
+    pub fn get_app_keys(&self) -> BoxResult<AppKeys> {
         let keys = loop {
             let pwd = prompt_password("Enter your backup password");
             let key = derive_key(&pwd, &self.bucket_name);

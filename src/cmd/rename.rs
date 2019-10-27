@@ -3,8 +3,9 @@ use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
+use crate::box_result::BoxResult;
 
-pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<(), Box<dyn Error + 'static>> {
+pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResult<()> {
     let src_path = path_from_arg(args, "source")?;
     let target_path = path_from_arg(args, "target")?;
 

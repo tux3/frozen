@@ -1,9 +1,11 @@
-use tokio_executor::threadpool;
+use std::future::Future;
+use std::sync::Mutex;
+use futures::TryFutureExt;
+use futures::future::{RemoteHandle, FutureExt, lazy, poll_fn};
+use tokio_executor::{threadpool, Executor, SpawnError};
 use tokio_net::driver::{self, Reactor};
 use tokio_timer::{timer, Timer, clock, clock::Clock};
-use std::future::Future;
 use crate::box_result::BoxResult;
-use std::sync::Mutex;
 
 /// This runtime is meant to be used in a local scope of an async fn
 /// Essentially a simplified copy of tokio's Runtime where shutdown functions can be awaited
@@ -84,10 +86,18 @@ impl Builder {
 }
 
 impl ScopedRuntime {
-    pub fn spawn<F>(&self, future: F)
+    pub fn spawn<F>(&self, future: F) -> Result<(), SpawnError>
         where F: Future<Output = ()> + Send + 'static,
     {
-        self.executor.spawn(future)
+        self.executor.sender().spawn(future)
+    }
+
+    pub fn spawn_with_handle<F>(&mut self, future: F) -> Result<RemoteHandle<F::Output>, SpawnError>
+        where F: Future + Send + 'static,
+              F::Output: Send,
+    {
+        let sender = self.executor.sender_mut() as &mut dyn Executor;
+        sender.spawn_with_handle(future)
     }
 
     pub fn shutdown_on_idle(self) -> threadpool::Shutdown {

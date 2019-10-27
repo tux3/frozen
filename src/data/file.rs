@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use crate::crypto;
+use crate::box_result::BoxResult;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalFile {
@@ -32,7 +33,7 @@ pub struct RemoteFileVersion {
 }
 
 impl LocalFile {
-    pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> Result<LocalFile, Box<dyn Error>> {
+    pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> BoxResult<LocalFile> {
         let rel_path = PathBuf::from(path.strip_prefix(base)?);
         let meta = fs::symlink_metadata(path)?;
         Ok(LocalFile {
@@ -47,22 +48,22 @@ impl LocalFile {
         root_path.join(&self.rel_path)
     }
 
-    pub fn is_symlink_at(&self, root_path: &Path) -> Result<bool, Box<dyn Error>> {
+    pub fn is_symlink_at(&self, root_path: &Path) -> BoxResult<bool> {
         Ok(fs::symlink_metadata(self.full_path(root_path))?.file_type().is_symlink())
     }
 
-    pub fn readlink_at(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn readlink_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
         Ok(Vec::from(fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes()))
     }
 
-    pub fn read_all_at(&self, root_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn read_all_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
         Ok(fs::read(self.full_path(root_path))?)
     }
 }
 
 impl RemoteFile {
     pub fn new(filename: &Path, fullname: &str, id: &str,
-               last_modified: u64, mode: u32, is_symlink: bool) -> Result<RemoteFile, Box<dyn Error>> {
+               last_modified: u64, mode: u32, is_symlink: bool) -> BoxResult<RemoteFile> {
         let elements: Vec<&str> = fullname.split('/').collect();
         if elements.len() != 2 {
             return Err(From::from("Invalid remote file name, expected exactly one slash"));

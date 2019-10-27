@@ -36,6 +36,7 @@ owning_ref = "0.3"
 hashbrown = "0.6"
 futures-intrusive = "0.2"
 crossbeam = "0.7"
+indicatif = "0.12"
 
 [profile.release]
 lto = true
