@@ -1,19 +1,15 @@
-use std::error::Error;
 use std::fs;
 use std::sync::Arc;
 use std::path::PathBuf;
 use futures::stream::StreamExt;
 use clap::ArgMatches;
-use ignore_result::Ignore;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
-use crate::signal::*;
 use crate::dirdb::{DirDB, diff::{FileDiff, DirDiff}};
 use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
-use indicatif::{MultiProgress, ProgressDrawTarget, ProgressBar, ProgressStyle};
 use crate::progress::{Progress, ProgressType};
 
 pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
@@ -33,7 +29,7 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let arc_b2 = Arc::new(b2.clone());
     let mut arc_root = Arc::new(root.clone());
 
-    let result = restore_one_root(config, args, target, arc_b2, arc_root.clone()).await;
+    let result = restore_one_root(config, target, arc_b2, arc_root.clone()).await;
 
     if let Some(root) = Arc::get_mut(&mut arc_root) {
         root.unlock().await?;
@@ -44,7 +40,7 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     result
 }
 
-pub async fn restore_one_root(config: &Config, args: &ArgMatches<'_>, target: PathBuf,
+pub async fn restore_one_root(config: &Config, target: PathBuf,
                               b2: Arc<B2>, root: Arc<root::BackupRoot>) -> BoxResult<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);

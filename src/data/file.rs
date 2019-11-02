@@ -1,12 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::fs::{self, File};
-use std::error::Error;
-use std::time::UNIX_EPOCH;
+use std::fs;
 use std::cmp::Ordering;
-use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::PermissionsExt;
 use crate::crypto;
 use crate::box_result::BoxResult;
+use crate::dirdb::filestat::FileStat;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalFile {
@@ -33,15 +30,13 @@ pub struct RemoteFileVersion {
 }
 
 impl LocalFile {
-    pub fn new(base: &Path, path: &Path, key: &crypto::Key) -> BoxResult<LocalFile> {
-        let rel_path = PathBuf::from(path.strip_prefix(base)?);
-        let meta = fs::symlink_metadata(path)?;
-        Ok(LocalFile {
-            rel_path_hash: crypto::hash_path(&rel_path, key),
-            rel_path,
-            mode: meta.permissions().mode(),
-            last_modified: meta.modified()?.duration_since(UNIX_EPOCH).unwrap().as_secs(),
-        })
+    pub fn from_file_stat(stat: &FileStat, key: &crypto::Key) -> Self {
+        Self {
+            rel_path: stat.rel_path.clone(),
+            rel_path_hash: crypto::hash_path(&stat.rel_path, key),
+            last_modified: stat.last_modified,
+            mode: stat.mode
+        }
     }
 
     fn full_path(&self, root_path: &Path) -> PathBuf {
@@ -76,10 +71,6 @@ impl RemoteFile {
             mode,
             is_symlink,
         })
-    }
-
-    pub fn cmp_local(&self, other: &LocalFile) -> Ordering {
-        self.rel_path_hash.cmp(&other.rel_path_hash)
     }
 }
 

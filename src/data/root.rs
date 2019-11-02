@@ -1,18 +1,12 @@
 use std::vec::Vec;
-use std::error::Error;
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
-use std::fs;
-use std::thread;
-use std::sync::mpsc::{channel, Sender, Receiver};
 use bincode::{serialize, deserialize};
 use data_encoding::{HEXLOWER_PERMISSIVE};
 use serde::{Serialize, Deserialize};
 use crate::crypto;
-use crate::data::file::{LocalFile, RemoteFile, RemoteFileVersion};
+use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::net::b2;
-use crate::config::Config;
-use crate::progress::ProgressDataReader;
 use crate::box_result::BoxResult;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -35,21 +29,6 @@ impl BackupRoot {
 
     pub fn rename(&mut self, new_path: PathBuf) {
         self.path = new_path;
-    }
-
-    pub fn list_local_files_async(&self, b2: &b2::B2, path: &Path)
-                                     -> Result<(Receiver<LocalFile>, thread::JoinHandle<()>), Box<dyn Error>> {
-        let (tx, rx) = channel();
-        let key = b2.key.clone();
-        if !path.is_dir() {
-            Err(From::from(format!("{} is not a folder!", &self.path.display())))
-        } else {
-            let path = path.to_owned();
-            let handle = thread::spawn(move || {
-                let _ = list_local_files(&path, &path, &key.clone(), &tx.clone());
-            });
-            Ok((rx, handle))
-        }
     }
 
     pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> BoxResult<Vec<RemoteFile>> {
@@ -99,30 +78,6 @@ impl BackupRoot {
         let (version, b2) = self.lock.take().unwrap();
         b2.delete_file_version(&version).await
     }
-}
-
-fn list_local_files(base: &Path, dir: &Path, key: &crypto::Key, tx: &Sender<LocalFile>)
-    -> BoxResult<()> {
-    let entries = fs::read_dir(dir);
-    if entries.is_err() {
-        println!("Couldn't open folder \"{}\": {}", base.join(dir).display(),
-                                                        entries.err().unwrap());
-        return Ok(())
-    }
-    for entry in entries.unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
-        if path.is_dir() && !is_symlink {
-            list_local_files(base, &path, key, tx)?;
-        } else {
-            let file = LocalFile::new(base, &path, key);
-            if tx.send(file.unwrap()).is_err() {
-                return Err(From::from("Main thread seems to be gone, exiting"));
-            }
-        }
-    }
-    Ok(())
 }
 
 pub async fn fetch_roots(b2: &b2::B2) -> BoxResult<Vec<BackupRoot>> {

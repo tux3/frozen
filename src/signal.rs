@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::box_result::BoxResult;
 

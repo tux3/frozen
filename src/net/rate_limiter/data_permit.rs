@@ -3,7 +3,7 @@ use futures_intrusive::sync::SemaphoreReleaser;
 use crossbeam::queue::ArrayQueue;
 
 pub struct RateLimitPermit<'rate_limiter, T> {
-    releaser: SemaphoreReleaser<'rate_limiter>,
+    _releaser: SemaphoreReleaser<'rate_limiter>,
     data_queue: &'rate_limiter ArrayQueue<Option<T>>,
     data: Option<T>,
 }
@@ -12,7 +12,7 @@ impl<'r, T> RateLimitPermit<'r, T> {
     pub fn new(releaser: SemaphoreReleaser<'r>, data_queue: &'r ArrayQueue<Option<T>>) -> Self {
         let data = data_queue.pop().expect("The data queue should be behind a semaphore and never underflow");
         Self {
-            releaser,
+            _releaser: releaser,
             data_queue,
             data,
         }

@@ -1,4 +1,3 @@
-use std::error::Error;
 use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::root;

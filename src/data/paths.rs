@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::path::{Path, PathBuf, Component};
 use std::ffi::OsStr;
 #[cfg(unix)]

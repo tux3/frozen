@@ -4,7 +4,6 @@ use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::progress::ProgressHandler;
-use indicatif::ProgressBar;
 
 pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
                     root: impl Borrow<BackupRoot>, b2: impl Borrow<B2>, file: RemoteFile) {

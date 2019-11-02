@@ -8,7 +8,7 @@ use crate::prompt::{prompt, prompt_password, prompt_yes_no};
 use crate::crypto::{AppKeys, derive_key, decrypt, encrypt};
 use crate::box_result::BoxResult;
 
-static CONFIG_FILE_RELPATH: &'static str = ".config/frozen.json";
+static CONFIG_FILE_RELPATH: &str = ".config/frozen.json";
 pub static UPLOAD_THREADS_DEFAULT: u16 = 6;
 pub static DOWNLOAD_THREADS_DEFAULT: u16 = 8;
 pub static DELETE_THREADS_DEFAULT: u16 = 16;

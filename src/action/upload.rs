@@ -6,8 +6,6 @@ use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
 use crate::progress::{ProgressHandler, ProgressDataReader};
 use crate::net::rate_limiter::RateLimiter;
-use std::ops::{Deref, DerefMut};
-use indicatif::ProgressBar;
 
 pub async fn upload(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
                     root: impl Borrow<BackupRoot>, b2: impl Borrow<B2>,

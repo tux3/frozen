@@ -1,9 +1,7 @@
-use std::error::Error;
 use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
-use crate::prompt::prompt_yes_no;
 use crate::box_result::BoxResult;
 
 pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResult<()> {

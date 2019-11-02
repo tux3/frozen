@@ -1,6 +1,5 @@
 use crate::dirdb::bitstream::*;
 use crate::dirdb::DirStat;
-use std::error::Error;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use blake2::VarBlake2b;
@@ -323,7 +322,6 @@ impl DirStat {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::path::Path;
     use crate::dirdb::DirStat;
     use crate::box_result::BoxResult;

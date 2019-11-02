@@ -1,20 +1,13 @@
-use std::vec::Vec;
-use std::io::{self, stdout, Write, Read, ErrorKind};
-use std::error::Error;
-use std::cmp;
-use std::pin::Pin;
 use std::thread::JoinHandle;
 use std::cell::Cell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use futures::task::Context;
-use pretty_bytes::converter::convert;
-use bytes::Bytes;
-use futures::{stream::Stream, Poll};
-use hyper::Chunk;
 use indicatif::{MultiProgress, ProgressDrawTarget, ProgressBar, ProgressStyle};
-use crate::progress::ProgressHandler;
-use std::borrow::Borrow;
+
+mod progress_handler;
+pub use progress_handler::*;
+
+mod progress_reader;
+pub use progress_reader::*;
 
 #[derive(Copy, Clone)]
 pub enum ProgressType {
@@ -42,7 +35,6 @@ pub struct Progress {
     download_progress: ProgressHandler,
     delete_progress: ProgressHandler,
     progress_thread: Cell<Option<JoinHandle<()>>>,
-    verbose: bool,
 }
 
 impl Progress {
@@ -60,16 +52,15 @@ impl Progress {
             download_progress,
             delete_progress,
             progress_thread: Cell::new(None),
-            verbose,
         }
     }
 
     fn create_progress_bar(bar_type: ProgressType, verbose: bool) -> ProgressHandler {
-        let bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden())
+        let progress_bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden())
             .with_style(ProgressStyle::default_bar()
                 .template(bar_type.style_template())
                 .progress_chars("=> "));
-        ProgressHandler::new(bar, verbose)
+        ProgressHandler::new(progress_bar, verbose)
     }
 
     /// Returns a handler to report progress with
@@ -84,13 +75,13 @@ impl Progress {
 
     /// Displays the progress bar iff there are any action to be done
     pub fn show_progress_bar(&self, bar_type: ProgressType, num_to_do: usize) -> ProgressHandler {
-        let bar = self.get_progress_handler(bar_type).clone();
+        let bar_handler = self.get_progress_handler(bar_type).clone();
         if num_to_do == 0 {
-            return bar;
+            return bar_handler;
         }
 
-        bar.set_length(num_to_do);
-        self.multi_progress.add(bar.bar.clone());
+        bar_handler.set_length(num_to_do);
+        self.multi_progress.add(bar_handler.progress_bar.clone());
 
         let mut progress_thread = self.progress_thread.take();
         if progress_thread.is_none() {
@@ -101,8 +92,8 @@ impl Progress {
         };
         self.progress_thread.set(progress_thread);
 
-        bar.bar.tick();
-        bar
+        bar_handler.progress_bar.tick();
+        bar_handler
     }
 
     /// Returns the number of progress errors logged since the output started

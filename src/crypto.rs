@@ -1,5 +1,4 @@
 use std::vec::Vec;
-use std::error::Error;
 use std::path::{PathBuf, Path};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
@@ -65,12 +64,8 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
         *dst = *src;
     }
 
-    let maybe_plain = secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key);
-    if maybe_plain.is_ok() {
-        Ok(maybe_plain.unwrap())
-    } else {
-        Err(From::from("Decryption failed"))
-    }
+    secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key)
+        .map_err(|_| From::from("Decryption failed"))
 }
 
 pub fn raw_hash(data: &[u8], output_size: usize, output: &mut [u8]) -> BoxResult<()> {

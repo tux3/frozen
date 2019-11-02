@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::sync::Mutex;
-use futures::TryFutureExt;
-use futures::future::{RemoteHandle, FutureExt, lazy, poll_fn};
+use futures::future::RemoteHandle;
 use tokio_executor::{threadpool, Executor, SpawnError};
 use tokio_net::driver::{self, Reactor};
 use tokio_timer::{timer, Timer, clock, clock::Clock};

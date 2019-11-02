@@ -59,6 +59,7 @@ impl FileDiffStream {
 
         let diff_next = move || match local_files_enum {
             LocalFilesEnum::HashMap(ref mut local_files) => {
+                #[allow(clippy::while_let_on_iterator)] // This is a FnMut, we can't consume the iterator!
                 while let Some(rfile) = remote_files_iter.next() {
                     if let Some(lfile) = local_files.remove(&rfile.rel_path_hash) {
                         if lfile.last_modified != rfile.last_modified {
@@ -93,12 +94,7 @@ impl FileDiffStream {
 
     fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, stat: &DirStat, key: &crypto::Key) {
         for file in stat.direct_files.as_ref().unwrap() {
-            let lfile = LocalFile{
-                rel_path: file.rel_path.clone(),
-                rel_path_hash: crypto::hash_path(&file.rel_path, key),
-                last_modified: file.last_modified,
-                mode: file.mode
-            };
+            let lfile = LocalFile::from_file_stat(file, key);
             files.insert(lfile.rel_path_hash.clone(), lfile);
         }
         for dir in stat.subfolders.iter() {

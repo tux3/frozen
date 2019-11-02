@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::error::Error;
 use super::*;
 use crate::box_result::BoxResult;
 
@@ -111,7 +110,6 @@ impl<'w, W: Write> Drop for BitstreamWriter<'w, W> {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use super::BitstreamWriter;
     use super::super::Encoding;
     use crate::box_result::BoxResult;

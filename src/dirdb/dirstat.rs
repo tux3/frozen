@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use blake2::VarBlake2b;
@@ -91,7 +90,6 @@ impl Eq for DirStat {}
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use std::path::Path;
     use self::super::DirStat;
     use crate::box_result::BoxResult;

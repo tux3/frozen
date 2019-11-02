@@ -14,7 +14,7 @@ pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat 
         direct_files: None,
         subfolders: Vec::new(),
         dir_name: remote.dir_name.clone(),
-        dir_name_hash: remote.dir_name_hash.clone(),
+        dir_name_hash: remote.dir_name_hash,
         content_hash,
     };
 

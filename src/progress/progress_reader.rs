@@ -1,4 +1,4 @@
-use std::io::{self, stdout, Write, Read, ErrorKind};
+use std::io::{self, Read};
 use std::error::Error;
 use std::pin::Pin;
 use std::task::Context;

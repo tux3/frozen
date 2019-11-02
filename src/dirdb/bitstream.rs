@@ -27,7 +27,6 @@ pub struct Encoding {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use super::*;
     use crate::box_result::BoxResult;
 

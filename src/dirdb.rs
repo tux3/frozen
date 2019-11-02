@@ -1,3 +1,7 @@
+use std::path::Path;
+use crate::crypto::{Key, encrypt, decrypt};
+use crate::box_result::BoxResult;
+
 pub mod dirstat;
 pub mod filestat;
 pub mod pack;
@@ -6,11 +10,6 @@ mod bitstream;
 
 use self::dirstat::DirStat;
 use self::filestat::FileStat;
-
-use crate::crypto::{Key, encrypt, decrypt};
-use std::error::Error;
-use std::path::Path;
-use crate::box_result::BoxResult;
 
 pub struct DirDB {
     root: DirStat

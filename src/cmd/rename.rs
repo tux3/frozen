@@ -1,4 +1,3 @@
-use std::error::Error;
 use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
@@ -12,7 +11,7 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResu
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");
-    let mut b2 = B2::authenticate(config, &keys).await?;
+    let b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
@@ -24,5 +23,5 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResu
 
     println!("Renaming folder {} to {}", src_path.display(), target_path.display());
     root.rename(target_path);
-    root::save_roots(&mut b2, &roots).await
+    root::save_roots(&b2, &roots).await
 }

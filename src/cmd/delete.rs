@@ -1,10 +1,6 @@
-use std::error::Error;
-use std::time::Duration;
 use std::sync::Arc;
 use std::path::Path;
 use clap::ArgMatches;
-use ignore_result::Ignore;
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;

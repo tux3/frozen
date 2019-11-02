@@ -1,23 +1,16 @@
-use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, mpsc::Receiver};
-use std::cmp::max;
+use std::sync::Arc;
 use clap::ArgMatches;
-use futures::TryFutureExt;
 use futures::stream::StreamExt;
-use tokio_executor::{threadpool, DefaultExecutor, Executor};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
 use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::net::b2;
 use crate::data::root::{self, BackupRoot};
-use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::path_from_arg;
 use crate::dirdb::{DirDB, diff::DirDiff, diff::FileDiff};
-use crate::progress::{self, ProgressDataReader, Progress, ProgressType};
-use crate::signal::*;
+use crate::progress::{Progress, ProgressType};
 
 pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
