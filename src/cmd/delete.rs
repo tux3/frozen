@@ -53,6 +53,7 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
         .build()?;
     let progress = Progress::new(config.verbose);
     let delete_progress = progress.show_progress_bar(ProgressType::Delete, rfiles.len());
+    b2.progress.replace(delete_progress.clone());
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {

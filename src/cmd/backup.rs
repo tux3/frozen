@@ -27,10 +27,9 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let mut roots = root::fetch_roots(&b2).await?;
     let root = root::open_create_root(&b2, &mut roots, &target).await?;
 
-    let arc_b2 = Arc::new(b2.clone());
     let mut arc_root = Arc::new(root.clone());
 
-    let result = backup_one_root(config, args, path, arc_b2, arc_root.clone()).await;
+    let result = backup_one_root(config, args, path, b2, arc_root.clone()).await;
 
     if let Some(root) = Arc::get_mut(&mut arc_root) {
         root.unlock().await?;
@@ -41,7 +40,7 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     result
 }
 
-pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, b2: Arc<b2::B2>, root: Arc<BackupRoot>) -> BoxResult<()> {
+pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, mut b2: b2::B2, root: Arc<BackupRoot>) -> BoxResult<()> {
     // This is scoped to shutdown when we're done running actions on the backup folder
     let mut action_runtime = scoped_runtime::Builder::new()
         .name_prefix("backup-")
@@ -53,6 +52,9 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 4);
     let upload_progress = progress.get_progress_handler(ProgressType::Upload);
     let delete_progress = progress.get_progress_handler(ProgressType::Delete);
+
+    b2.progress.replace(diff_progress.clone());
+    let b2 = Arc::new(b2);
 
     let dirdb_path = "dirdb/".to_string()+&root.path_hash;
     let remote_dirdb_fut = {

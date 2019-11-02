@@ -10,11 +10,10 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE, CONTENT_LENGTH, CONNECTION};
 use hyper_tls::HttpsConnector;
 use serde_json::{self, Value};
 use data_encoding::BASE64_NOPAD;
-use indicatif::ProgressBar;
 use crate::crypto::{self, AppKeys, encode_meta, decode_meta};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::config::Config;
-use crate::progress::ProgressDataReader;
+use crate::progress::{ProgressDataReader, ProgressHandler};
 use crate::box_result::BoxResult;
 
 
@@ -32,7 +31,7 @@ pub struct B2 {
     pub api_url: String,
     pub bucket_download_url: String,
     pub client: Client<HttpsConnector<HttpConnector>>,
-    pub tx_progress: Option<ProgressBar>,
+    pub progress: Option<ProgressHandler>,
 }
 
 impl Clone for B2 {
@@ -45,12 +44,12 @@ impl Clone for B2 {
             api_url: self.api_url.clone(),
             bucket_download_url: self.bucket_download_url.clone(),
             client: make_client(),
-            tx_progress: None,
+            progress: self.progress.clone(),
         }
     }
 }
 
-async fn warning(maybe_progress: &Option<ProgressBar>, msg: &str) {
+async fn warning(maybe_progress: &Option<ProgressHandler>, msg: &str) {
     match maybe_progress {
         Some(progress) => {
             progress.println(format!("Warning: {}", msg));
@@ -89,7 +88,7 @@ impl B2 {
                 Ok(res) => res,
                 Err(e) => {
                     let err_str = format!("Unexpected request failure: {}", e);
-                    warning(&self.tx_progress, &err_str).await;
+                    warning(&self.progress, &err_str).await;
                     continue;
                 },
             };
@@ -98,7 +97,7 @@ impl B2 {
 
             // Temporary failure is not an error, just asking for an exponential backoff
             if status.as_u16() == 503 || status.as_u16() == 408 {
-                warning(&self.tx_progress, status.canonical_reason().unwrap_or("Temporary request failure")).await;
+                warning(&self.progress, status.canonical_reason().unwrap_or("Temporary request failure")).await;
                 continue;
             }
 
@@ -144,7 +143,7 @@ impl B2 {
             bucket_id: String::new(),
             api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
             bucket_download_url,
-            tx_progress: None,
+            progress: None,
             client,
         };
 

@@ -26,10 +26,9 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let mut roots = root::fetch_roots(&b2).await?;
     let root = root::open_root(&b2, &mut roots, &path).await?;
 
-    let arc_b2 = Arc::new(b2.clone());
     let mut arc_root = Arc::new(root.clone());
 
-    let result = restore_one_root(config, target, arc_b2, arc_root.clone()).await;
+    let result = restore_one_root(config, target, b2, arc_root.clone()).await;
 
     if let Some(root) = Arc::get_mut(&mut arc_root) {
         root.unlock().await?;
@@ -41,11 +40,14 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 }
 
 pub async fn restore_one_root(config: &Config, target: PathBuf,
-                              b2: Arc<B2>, root: Arc<root::BackupRoot>) -> BoxResult<()> {
+                              mut b2: B2, root: Arc<root::BackupRoot>) -> BoxResult<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 3);
     let download_progress = progress.get_progress_handler(ProgressType::Download);
+
+    b2.progress.replace(diff_progress.clone());
+    let b2 = Arc::new(b2);
 
     // TODO: Factor out the code in backup.rs that fetches/creates DirDBs and the DirDiff, reuse here (with the right target path, ofc)
 
