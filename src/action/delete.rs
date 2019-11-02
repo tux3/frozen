@@ -1,22 +1,20 @@
 use std::borrow::Borrow;
 use crate::net::rate_limiter::RateLimiter;
-use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::progress::ProgressHandler;
 
 pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
-                    root: impl Borrow<BackupRoot>, b2: impl Borrow<B2>, file: RemoteFile) {
+                    b2: impl Borrow<B2>, file: RemoteFile) {
     let _permit_guard = rate_limiter.borrow().borrow_delete_permit().await;
     if progress.verbose() {
         progress.println(format!("Deleting {}", file.rel_path.display()));
     }
 
     let b2 = b2.borrow();
-    let root = root.borrow();
 
-    let version = RemoteFileVersion{
-        path: root.path_hash.clone()+"/"+&file.rel_path_hash,
+    let version = RemoteFileVersion {
+        path: file.full_path_hash.clone(),
         id: file.id.clone(),
     };
 
@@ -28,8 +26,7 @@ pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHa
         return;
     }
 
-    let path = root.path_hash.clone()+"/"+&file.rel_path_hash;
-    let _ = b2.hide_file(&path).await;
+    let _ = b2.hide_file(&file.full_path_hash).await;
 
     progress.report_success();
 }

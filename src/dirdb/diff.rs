@@ -25,7 +25,7 @@ impl DirDiff {
     pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: Option<DirDB>) -> BoxResult<DirDiff> {
         let mut diff_stream = SelectAll::new();
         let local: ArcRef<DirDB> = local.into();
-        diff_stream.push(FileDiffStream::new(root, b2, String::new(), local.clone().map(|db| &db.root)));
+        diff_stream.push(FileDiffStream::new(root, b2, "/".to_owned(), local.clone().map(|db| &db.root)));
 
         let remote = match remote {
             Some(remote) => remote,

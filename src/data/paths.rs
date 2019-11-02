@@ -59,6 +59,12 @@ pub fn path_to_bytes(path: &Path) -> BoxResult<&[u8]> {
 }
 
 #[cfg(unix)]
+pub fn filename_to_bytes(path: &Path) -> BoxResult<&[u8]> {
+    let os_str = path.file_name().unwrap();
+    Ok(os_str.as_bytes())
+}
+
+#[cfg(unix)]
 pub fn path_from_bytes(bytes: &[u8]) -> BoxResult<&Path> {
     let os_str = OsStr::from_bytes(bytes);
     Ok(Path::new(os_str))

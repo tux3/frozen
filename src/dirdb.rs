@@ -29,12 +29,15 @@ impl DirDB {
         }
     }
 
-    pub fn new_from_local(path: &Path) -> BoxResult<Self> {
+    pub fn new_from_local(path: &Path, key: &Key) -> BoxResult<Self> {
         let mut root = DirStat::new(path, path)?;
 
         // It'd be meaningless for the root dir to have a name relative to itself!
         root.dir_name = None;
         root.dir_name_hash = [0; 8];
+
+        let mut path_hash_str = "/".to_string();
+        root.recompute_dir_name_hashes(&mut path_hash_str, key);
 
         Ok(Self {
             root,
@@ -44,7 +47,7 @@ impl DirDB {
     pub fn new_from_packed(packed: &[u8], key: &Key) -> BoxResult<Self> {
         let decrypted = decrypt(packed, key)?;
         Ok(Self {
-            root: DirStat::new_from_bytes(&mut decrypted.as_slice())?,
+            root: DirStat::new_from_bytes(&mut decrypted.as_slice(), key)?,
         })
     }
 

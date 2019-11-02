@@ -62,7 +62,7 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
         })?
     };
 
-    let local_dirdb = Arc::new(DirDB::new_from_local(&path)?);
+    let local_dirdb = Arc::new(DirDB::new_from_local(&path, &b2.key)?);
     diff_progress.report_success();
 
     let remote_dirdb = remote_dirdb_fut.await.ok().and_then(|data| {
@@ -95,15 +95,14 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
                 }
                 num_upload_actions += 1;
                 action_runtime.spawn(action::upload(rate_limiter.clone(), upload_progress.clone(),
-                                                    root.clone(), b2.clone(), config.compression_level, path.clone(), lfile))?;
+                                                    b2.clone(), config.compression_level, path.clone(), lfile))?;
             },
             FileDiff{local: None, remote: Some(rfile)} => {
                 if keep_existing {
                     continue
                 }
                 num_delete_actions += 1;
-                action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(),
-                                                    root.clone(), b2.clone(), rfile))?;
+                action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), b2.clone(), rfile))?;
             },
             FileDiff{local: None, remote: None} => unreachable!()
         }

@@ -48,7 +48,7 @@ pub async fn restore_one_root(config: &Config, target: PathBuf,
 
     // TODO: Factor out the code in backup.rs that fetches/creates DirDBs and the DirDiff, reuse here (with the right target path, ofc)
 
-    let target_dirdb = Arc::new(DirDB::new_from_local(&target)?);
+    let target_dirdb = Arc::new(DirDB::new_from_local(&target, &b2.key)?);
     diff_progress.report_success();
 
     let dirdb_path = "dirdb/".to_string()+&root.path_hash;
@@ -74,13 +74,14 @@ pub async fn restore_one_root(config: &Config, target: PathBuf,
         match item {
             FileDiff{local, remote: Some(rfile)} => {
                 if let Some(lfile) = local {
+                    diff_progress.println(format!("LOCAL: {}, REMOTE: {}", &lfile.full_path_hash, &rfile.full_path_hash));
                     if lfile.last_modified >= rfile.last_modified {
                         continue
                     }
                 }
                 num_download_actions += 1;
                 action_runtime.spawn(action::download(rate_limiter.clone(), download_progress.clone(),
-                                                      root.clone(), b2.clone(), target.clone(), rfile))?;
+                                                      b2.clone(), target.clone(), rfile))?;
             },
             FileDiff{local: Some(_), remote: None} => (),
             FileDiff{local: None, remote: None} => unreachable!()

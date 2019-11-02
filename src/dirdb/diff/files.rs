@@ -11,6 +11,7 @@ use crate::crypto;
 use crate::data::root::BackupRoot;
 use crate::data::file::{RemoteFile, LocalFile};
 use crate::net::b2::B2;
+use crate::data::paths::filename_to_bytes;
 
 pub struct FileDiff {
     pub local: Option<LocalFile>,
@@ -31,10 +32,13 @@ pub struct FileDiffStream {
     state: FileDiffStreamState,
     b2: Arc<B2>,
     dir_stat: ArcRef<DirDB, DirStat>,
+    dir_path_hash: Option<String>,
 }
 
 impl FileDiffStream {
     pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, prefix: String, dir_stat: ArcRef<DirDB, DirStat>) -> Self {
+        let dir_path_hash = root.path_hash.clone() + &prefix;
+
         let b2_clone = b2.clone();
         let list_fut = async move {
             root.list_remote_files_at(&b2_clone, &prefix).await
@@ -46,6 +50,7 @@ impl FileDiffStream {
             },
             b2,
             dir_stat,
+            dir_path_hash: Some(dir_path_hash),
         }
     }
 
@@ -61,7 +66,7 @@ impl FileDiffStream {
             LocalFilesEnum::HashMap(ref mut local_files) => {
                 #[allow(clippy::while_let_on_iterator)] // This is a FnMut, we can't consume the iterator!
                 while let Some(rfile) = remote_files_iter.next() {
-                    if let Some(lfile) = local_files.remove(&rfile.rel_path_hash) {
+                    if let Some(lfile) = local_files.remove(&rfile.full_path_hash) {
                         if lfile.last_modified != rfile.last_modified {
                             return Some(FileDiff {
                                 local: Some(lfile),
@@ -92,13 +97,26 @@ impl FileDiffStream {
         futures::stream::iter(std::iter::from_fn(diff_next).map(Result::Ok))
     }
 
-    fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, stat: &DirStat, key: &crypto::Key) {
-        for file in stat.direct_files.as_ref().unwrap() {
-            let lfile = LocalFile::from_file_stat(file, key);
-            files.insert(lfile.rel_path_hash.clone(), lfile);
+    fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, dirstat: &DirStat, dir_path_hash: &mut String, key: &crypto::Key) {
+        for filestat in dirstat.direct_files.as_ref().unwrap() {
+            let mut full_path_hash = dir_path_hash.clone();
+            crypto::hash_path_filename_into(dir_path_hash.as_bytes(), filename_to_bytes(&filestat.rel_path).unwrap(), key, &mut full_path_hash);
+
+            let lfile = LocalFile {
+                rel_path: filestat.rel_path.clone(),
+                full_path_hash,
+                last_modified: filestat.last_modified,
+                mode: filestat.mode
+            };
+            files.insert(lfile.full_path_hash.clone(), lfile);
         }
-        for dir in stat.subfolders.iter() {
-            Self::flatten_dirstat_files(files, dir, key);
+
+        let cur_dir_path_hash_len = dir_path_hash.len();
+        for subdir in dirstat.subfolders.iter() {
+            dir_path_hash.truncate(cur_dir_path_hash_len);
+            base64::encode_config_buf(&subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, dir_path_hash);
+            dir_path_hash.push('/');
+            Self::flatten_dirstat_files(files, subdir, dir_path_hash, key);
         }
     }
 
@@ -111,7 +129,8 @@ impl FileDiffStream {
             }
             Poll::Ready(Ok(remote_files)) => {
                 let mut local_files = HashMap::new();
-                Self::flatten_dirstat_files(&mut local_files, &self.dir_stat, &self.b2.key);
+                let mut dir_path_hash = self.dir_path_hash.take().unwrap();
+                Self::flatten_dirstat_files(&mut local_files, &self.dir_stat, &mut dir_path_hash, &self.b2.key);
 
                 let mut diff_stream = Self::make_diff_stream(local_files, remote_files);
                 let next = diff_stream.poll_next_unpin(cx);

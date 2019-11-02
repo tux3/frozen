@@ -5,24 +5,20 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{symlink, OpenOptionsExt};
 use crate::net::rate_limiter::RateLimiter;
 use crate::data::file::RemoteFile;
-use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
 use crate::progress::ProgressHandler;
 use crate::crypto;
 
 pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
-                      root: impl Borrow<BackupRoot>, b2: impl Borrow<B2>,
-                      target_path: impl Borrow<PathBuf>, file: RemoteFile) {
+                      b2: impl Borrow<B2>, target_path: impl Borrow<PathBuf>, file: RemoteFile) {
     let b2 = b2.borrow();
-    let root = root.borrow();
 
     let mut _permit_guard = rate_limiter.borrow().borrow_download_permit().await;
     if progress.verbose() {
         progress.println(format!("Downloading {}", file.rel_path.display()));
     }
 
-    let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
-    let encrypted = b2.download_file(&filehash).await
+    let encrypted = b2.download_file(&file.full_path_hash).await
         .map_err(|err| format!("Failed to download file \"{}\": {}", file.rel_path.display(), err));
     if let Err(err) = encrypted {
         progress.report_error(&err);

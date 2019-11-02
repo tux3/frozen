@@ -8,6 +8,7 @@ use zstd::stream::{write::Encoder, read::Decoder};
 use crate::data::paths::path_from_bytes;
 use crate::data::paths::path_to_bytes;
 use crate::box_result::BoxResult;
+use crate::crypto::{self, Key};
 
 ///! Very dense custom bitstream format for DirStat objects
 ///! We need a dense format because DirStats are uploaded in full after every change,
@@ -155,11 +156,13 @@ fn best_encoding_settings(stat: &DirStat, info: &PackingInfo) -> EncodingSetting
 
 impl DirStat {
     fn subdirs_from_bytes<R: Read>(parent_rel_path: Option<&PathBuf>,
-                                    reader: &mut &[u8],
-                                    files_count_stream: &mut BitstreamReader,
-                                    subdirs_count_stream: &mut BitstreamReader,
-                                    dirname_count_stream: &mut BitstreamReader,
-                                    subdirs_reader: &mut R) -> BoxResult<Self> {
+                                   path_hash_str: &mut String,
+                                   key: &Key,
+                                   reader: &mut &[u8],
+                                   files_count_stream: &mut BitstreamReader,
+                                   subdirs_count_stream: &mut BitstreamReader,
+                                   dirname_count_stream: &mut BitstreamReader,
+                                   subdirs_reader: &mut R) -> BoxResult<Self> {
         let direct_files_count = files_count_stream.read();
         let subfolders_count = subdirs_count_stream.read();
         let dir_name_len = dirname_count_stream.read();
@@ -173,9 +176,16 @@ impl DirStat {
         } else {
             let mut dir_name = vec![0u8; dir_name_len as usize];
             subdirs_reader.read_exact(dir_name.as_mut())?;
-            crate::crypto::raw_hash(&dir_name, 8, &mut stat.dir_name_hash)?;
+            crypto::hash_path_dir_into(path_hash_str, &dir_name, key, &mut stat.dir_name_hash);
             stat.dir_name = Some(dir_name);
         }
+
+        // Skip encoding the dir_name hash for the root folder, its path hash is just "/"
+        if !path_hash_str.is_empty() {
+            base64::encode_config_buf(&stat.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+        }
+        path_hash_str.push('/');
+        let cur_path_hash_str_len = path_hash_str.len();
 
         let dir_rel_path = parent_rel_path.and_then(|path| {
             match stat.dir_name.as_ref() {
@@ -197,7 +207,10 @@ impl DirStat {
 
         let mut total_files_count = direct_files_count;
         for _ in 0..subfolders_count {
+            path_hash_str.truncate(cur_path_hash_str_len);
             let subdir = Self::subdirs_from_bytes(dir_rel_path.as_ref(),
+                                                  path_hash_str,
+                                                  key,
                                                   reader,
                                                   files_count_stream,
                                                   subdirs_count_stream,
@@ -218,7 +231,7 @@ impl DirStat {
     }
 
     /// Load directory stats from a buffer produced by `serialize_into`
-    pub fn new_from_bytes(reader: &mut &[u8]) -> BoxResult<Self> {
+    pub fn new_from_bytes(reader: &mut &[u8], key: &Key) -> BoxResult<Self> {
         let mut files_count_stream =  BitstreamReader::new(reader);
         let mut subdirs_count_stream =  BitstreamReader::new(files_count_stream.slice_after());
         let mut dirname_count_stream =  BitstreamReader::new(subdirs_count_stream.slice_after());
@@ -228,7 +241,10 @@ impl DirStat {
         let mut dirnames_reader = Decoder::new(dirnames_data)?;
 
         let subdirs_data = &dirnames_data[dirnames_data_size..];
+        let mut path_hash_str = String::new();
         Self::subdirs_from_bytes(Some(&PathBuf::new()),
+                                 &mut path_hash_str,
+                                 key,
                                  &mut &subdirs_data[..],
                                  &mut files_count_stream,
                                  &mut subdirs_count_stream,
@@ -325,15 +341,21 @@ mod tests {
     use std::path::Path;
     use crate::dirdb::DirStat;
     use crate::box_result::BoxResult;
+    use crate::crypto::Key;
 
     #[test]
     fn serialize_roundtrip() -> BoxResult<()> {
         let path = Path::new("test_data");
-        let stat = DirStat::new(path, path)?;
+
+        let mut stat = DirStat::new(path, path)?;
+        let mut path_hash_str = "/".to_string();
+        let key = Key([0; 32]);
+        stat.recompute_dir_name_hashes(&mut path_hash_str, &key);
+
         let mut serialized = Vec::new();
         stat.serialize_into(&mut serialized)?;
 
-        let unserialized = DirStat::new_from_bytes(&mut &serialized[..])?;
+        let unserialized = DirStat::new_from_bytes(&mut &serialized[..], &key)?;
         assert_eq!(stat, unserialized);
 
         let mut reserialized = Vec::new();

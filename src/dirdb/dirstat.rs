@@ -5,6 +5,7 @@ use blake2::digest::{Input, VariableOutput};
 use super::FileStat;
 use crate::data::paths::path_to_bytes;
 use crate::box_result::BoxResult;
+use crate::crypto::{self, Key};
 
 #[derive(Default, Debug)]
 pub struct DirStat {
@@ -23,7 +24,8 @@ pub struct DirStat {
 }
 
 impl DirStat {
-    pub fn new(base_path: &Path, dir_path: &Path) -> BoxResult<Self> {
+    /// Creates a DirStat, but does not compute dir_name_hash
+    pub(super) fn new(base_path: &Path, dir_path: &Path) -> BoxResult<Self> {
         let mut hasher = VarBlake2b::new(8)?;
         let mut total_files_count = 0;
         let mut direct_files = Vec::new();
@@ -62,9 +64,19 @@ impl DirStat {
             dir_name: Some(dir_name.to_owned()),
             ..Default::default()
         };
-        crate::crypto::raw_hash(&dir_name, 8, &mut result.dir_name_hash)?;
         hasher.variable_result(|hash| result.content_hash.copy_from_slice(hash));
         Ok(result)
+    }
+
+    pub fn recompute_dir_name_hashes(&mut self, path_hash_str: &mut String, key: &Key) {
+        let cur_path_hash_str_len = path_hash_str.len();
+        for subfolder in self.subfolders.iter_mut() {
+            path_hash_str.truncate(cur_path_hash_str_len);
+            crypto::hash_path_dir_into(path_hash_str, &subfolder.dir_name.as_ref().unwrap(), key, &mut subfolder.dir_name_hash);
+            base64::encode_config_buf(&subfolder.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+            path_hash_str.push('/');
+            subfolder.recompute_dir_name_hashes(path_hash_str, key);
+        }
     }
 
     pub fn compute_direct_files_count(&self) -> u64 {

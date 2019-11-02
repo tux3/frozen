@@ -57,8 +57,7 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
-        action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(),
-                                            root.clone(), b2.clone(), rfile))?;
+        action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), b2.clone(), rfile))?;
     }
     action_runtime.shutdown_on_idle().await;
     delete_progress.finish();

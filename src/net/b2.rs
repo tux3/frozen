@@ -223,7 +223,7 @@ impl B2 {
                 let id = file["fileId"].as_str().unwrap();
                 let enc_meta = file["fileInfo"]["enc_meta"].as_str().unwrap();
                 let (filename, mtime, mode, is_symlink) = decode_meta(&self.key, enc_meta)?;
-                files.push(RemoteFile::new(&filename, full_name, id, mtime, mode, is_symlink)?)
+                files.push(RemoteFile::new(&filename, full_name, id, mtime, mode, is_symlink))
             }
 
             if let Some(next) = reply_json["nextFileName"].as_str() {

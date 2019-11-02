@@ -5,12 +5,16 @@ use sodiumoxide::randombytes;
 use libsodium_sys;
 use bincode::{serialize, deserialize};
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
+use base64;
 use blake2::VarBlake2b;
 use sha1::Sha1;
 use digest::{Digest, Input, VariableOutput};
 use crate::box_result::BoxResult;
 
 pub use sodiumoxide::crypto::secretbox::Key;
+
+const DIRNAME_PATH_HASH_LEN: usize = 8;
+const FILENAME_PATH_HASH_LEN: usize = 12;
 
 pub struct AppKeys {
     pub b2_key_id: String,
@@ -68,18 +72,27 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
         .map_err(|_| From::from("Decryption failed"))
 }
 
-pub fn raw_hash(data: &[u8], output_size: usize, output: &mut [u8]) -> BoxResult<()> {
-    let mut hasher = VarBlake2b::new(output_size)?;
-    hasher.input(data);
-    hasher.variable_result(|result| output.copy_from_slice(result));
-    Ok(())
+pub fn hash_path_dir_into(dir_path_hash: &String, secret_dirname: &[u8], key: &Key, out: &mut [u8; DIRNAME_PATH_HASH_LEN]) {
+    let &Key(keydata) = key;
+    let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
+    hasher.input(dir_path_hash.as_bytes());
+    hasher.input(secret_dirname);
+    hasher.variable_result(|res| out.copy_from_slice(res));
 }
 
-pub fn hash_path(secret_path: &Path, key: &Key) -> String {
+pub fn hash_path_filename_into(parent_hash: &[u8], secret_filename: &[u8], key: &Key, out: &mut String) {
     let &Key(keydata) = key;
-    let mut hasher = VarBlake2b::new_keyed(&keydata, 20);
-    hasher.input(serialize(secret_path).unwrap());
-    BASE64URL_NOPAD.encode(&hasher.vec_result())
+    let mut hasher = VarBlake2b::new_keyed(&keydata, FILENAME_PATH_HASH_LEN);
+    hasher.input(parent_hash);
+    hasher.input(secret_filename);
+    base64::encode_config_buf(&hasher.vec_result(), base64::URL_SAFE_NO_PAD, out);
+}
+
+pub fn hash_path_root(secret_root_path: &Path, key: &Key) -> String {
+    let &Key(keydata) = key;
+    let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
+    hasher.input(serialize(secret_root_path).unwrap());
+    base64::encode_config(&hasher.vec_result(), base64::URL_SAFE_NO_PAD)
 }
 
 pub fn sha1_string(data: &[u8]) -> String {

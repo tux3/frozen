@@ -22,7 +22,7 @@ impl BackupRoot {
     fn new(path: &Path, key: &crypto::Key) -> BackupRoot {
         BackupRoot {
             path: path.to_owned(),
-            path_hash: crypto::hash_path(path, key),
+            path_hash: crypto::hash_path_root(path, key),
             lock: None,
         }
     }
@@ -32,7 +32,7 @@ impl BackupRoot {
     }
 
     pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> BoxResult<Vec<RemoteFile>> {
-        self.list_remote_files_at(b2, "").await
+        self.list_remote_files_at(b2, "/").await
     }
 
     pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> BoxResult<Vec<RemoteFile>> {
@@ -40,7 +40,11 @@ impl BackupRoot {
             return Err(From::from("Cannot list remote files, backup root isn't locked!"));
         }
 
-        let path = self.path_hash.clone()+"/"+prefix;
+        // We assume the prefix is a relative path hash, starting and ending with /
+        debug_assert!(prefix.chars().next() == Some('/'));
+        debug_assert!(prefix.chars().last() == Some('/'));
+
+        let path = self.path_hash.clone()+prefix;
         let mut files = b2.list_remote_files(&path).await?;
         files.sort();
         Ok(files)
