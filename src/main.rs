@@ -15,6 +15,9 @@ mod progress;
 mod prompt;
 mod signal;
 
+#[cfg(test)]
+mod test_helpers;
+
 #[tokio::main]
 async fn async_main() -> BoxResult<()> {
     let args = App::new("Frozen Backup")

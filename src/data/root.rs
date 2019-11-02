@@ -32,20 +32,25 @@ impl BackupRoot {
     }
 
     pub async fn list_remote_files<'a>(&'a self, b2: &'a b2::B2) -> BoxResult<Vec<RemoteFile>> {
-        self.list_remote_files_at(b2, "/").await
+        self.list_remote_files_at(b2, "/", b2::FileListDepth::Deep).await
     }
 
-    pub async fn list_remote_files_at<'a>(&'a self, b2: &'a b2::B2, prefix: &'a str) -> BoxResult<Vec<RemoteFile>> {
+    pub async fn list_remote_files_at<'a>(
+        &'a self,
+        b2: &'a b2::B2,
+        prefix: &'a str,
+        depth: b2::FileListDepth,
+    ) -> BoxResult<Vec<RemoteFile>> {
         if self.lock.is_none() {
             return Err(From::from("Cannot list remote files, backup root isn't locked!"));
         }
 
         // We assume the prefix is a relative path hash, starting and ending with /
-        debug_assert!(prefix.chars().next() == Some('/'));
-        debug_assert!(prefix.chars().last() == Some('/'));
+        debug_assert!(prefix.starts_with('/'));
+        debug_assert!(prefix.ends_with('/'));
 
         let path = self.path_hash.clone() + prefix;
-        let mut files = b2.list_remote_files(&path).await?;
+        let mut files = b2.list_remote_files(&path, depth).await?;
         files.sort();
         Ok(files)
     }
@@ -162,5 +167,16 @@ pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a [BackupRoot], path: &
         Ok(())
     } else {
         Err(From::from(format!("Backup does not exist for \"{}\"", path.display())))
+    }
+}
+
+#[cfg(test)]
+pub mod test_helpers {
+    use super::BackupRoot;
+    use crate::crypto::Key;
+    use std::path::Path;
+
+    pub fn test_backup_root(key: &Key) -> BackupRoot {
+        BackupRoot::new(Path::new("/tmp/test/path"), key)
     }
 }

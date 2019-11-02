@@ -10,11 +10,15 @@ use hyper::header::{AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE};
 use hyper::{Body, Chunk, Request, StatusCode};
 use hyper_tls::HttpsConnector;
 use serde_json::{self, Value};
-use std::error::Error;
 use std::path::Path;
-use std::str;
+use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub enum FileListDepth {
+    Shallow, // List only files in the current "folder"
+    Deep,    // List every file recursively
+}
 
 #[derive(Clone, PartialEq)]
 pub struct B2Upload {
@@ -77,10 +81,7 @@ fn make_client() -> Client<HttpsConnector<HttpConnector>> {
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(
-        &self,
-        req_builder: F,
-    ) -> Result<(StatusCode, Chunk), Box<dyn Error + Send + Sync + 'static>>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> BoxResult<(StatusCode, Chunk)>
     where
         F: Fn() -> Request<Body>,
     {
@@ -137,14 +138,14 @@ impl B2 {
             Err(_) => {
                 return Err(From::from(format!(
                     "authenticate failed to parse json: {}",
-                    str::from_utf8(&body).unwrap()
+                    std::str::from_utf8(&body).unwrap()
                 )))
             }
             Ok(json) => json,
         };
 
         if !status.is_success() {
-            let mut err_msg = String::from("Backblaze B2 login failure: ") + str::from_utf8(&body).unwrap();
+            let mut err_msg = "Backblaze B2 login failure: ".to_string() + from_utf8(&body).unwrap();
             if let Value::String(ref reply_err_msg) = reply_json["message"] {
                 err_msg += &(String::from(": ") + &reply_err_msg);
             }
@@ -214,14 +215,19 @@ impl B2 {
         Err(From::from(format!("Bucket '{}' not found", bucket_name)))
     }
 
-    pub async fn list_remote_files(&self, prefix: &str) -> BoxResult<Vec<RemoteFile>> {
+    pub async fn list_remote_files(&self, prefix: &str, depth: FileListDepth) -> BoxResult<Vec<RemoteFile>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_names";
 
+        let delimiter = match depth {
+            FileListDepth::Shallow => "null",
+            FileListDepth::Deep => "\"/\"",
+        };
         let body_base = format!(
             "\"bucketId\":\"{}\",\
              \"maxFileCount\":10000,\
+             \"delimiter\":{},\
              \"prefix\":\"{}\"",
-            self.bucket_id, prefix
+            self.bucket_id, delimiter, prefix
         );
         let mut start_filename: Option<String> = None;
         let mut files: Vec<RemoteFile> = Vec::new();
@@ -258,6 +264,10 @@ impl B2 {
             }
 
             for file in reply_json["files"].as_array().unwrap() {
+                // Ignore non-files (folders, large file starts) entirely
+                if file["action"] != "upload" {
+                    continue;
+                }
                 let full_name = file["fileName"].as_str().unwrap();
                 let id = file["fileId"].as_str().unwrap();
                 let enc_meta = file["fileInfo"]["enc_meta"].as_str().unwrap();
@@ -320,7 +330,7 @@ impl B2 {
             }
 
             for file in reply_json["files"].as_array().unwrap() {
-                // Ignore hidden files entirely
+                // Ignore non-files (folders, hidden files, large file starts) entirely
                 if file["action"] != "upload" {
                     continue;
                 }
@@ -448,7 +458,7 @@ impl B2 {
             Err(_) => {
                 return Err(From::from(format!(
                     "upload_file failed to parse json: {}",
-                    str::from_utf8(&body).unwrap()
+                    std::str::from_utf8(&body).unwrap()
                 )))
             }
             Ok(json) => json,
@@ -517,5 +527,24 @@ impl B2 {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+pub mod test_helpers {
+    use super::{make_client, B2};
+    use crate::crypto::Key;
+
+    pub fn test_b2(key: Key) -> B2 {
+        B2 {
+            key,
+            bucket_id: "bucket_id".to_string(),
+            acc_id: "acc_id".to_string(),
+            auth_token: "auth_token".to_string(),
+            api_url: "https://example.org/api/".to_string(),
+            bucket_download_url: "https://example.org/download_url/".to_string(),
+            client: make_client(),
+            progress: None,
+        }
     }
 }

@@ -6,6 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
+futures-preview = "0.3.0-alpha"
 tokio = "0.2.0-alpha.6"
 tokio-executor = "0.2.0-alpha.6"
 tokio-net = { version = "0.2.0-alpha.6", features = ["signal"] }
@@ -13,7 +14,6 @@ tokio-timer = "0.3.0-alpha.6"
 hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream"] }
 hyper-tls = "0.4.0-alpha.4"
 bytes = "0.4"
-futures-preview = { version = "0.3.0-alpha" }
 bincode = "1.2"
 sodiumoxide = "0.2"
 libsodium-sys = "0.2"

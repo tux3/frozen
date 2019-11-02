@@ -4,7 +4,7 @@ use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::filename_to_bytes;
 use crate::data::root::BackupRoot;
-use crate::net::b2::B2;
+use crate::net::b2::{FileListDepth, B2};
 use futures::future::{FutureExt, LocalBoxFuture};
 use futures::stream::{LocalBoxStream, Stream, StreamExt};
 use futures::task::{Context, Poll};
@@ -21,6 +21,7 @@ pub struct FileDiff {
 enum FileDiffStreamState {
     DownloadFileList {
         list_fut: LocalBoxFuture<'static, BoxResult<Vec<RemoteFile>>>,
+        key: crypto::Key,
     },
     DiffFiles {
         diff_stream: LocalBoxStream<'static, BoxResult<FileDiff>>,
@@ -30,23 +31,62 @@ enum FileDiffStreamState {
 
 pub struct FileDiffStream {
     state: FileDiffStreamState,
-    b2: Arc<B2>,
-    dir_stat: ArcRef<DirDB, DirStat>,
+    dir_stat: Option<ArcRef<DirDB, DirStat>>,
     dir_path_hash: Option<String>,
 }
 
 impl FileDiffStream {
-    pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, prefix: String, dir_stat: ArcRef<DirDB, DirStat>) -> Self {
+    /// Creates a stream that will list and diff remote files
+    pub fn new(
+        root: Arc<BackupRoot>,
+        b2: Arc<B2>,
+        prefix: String,
+        dir_stat: Option<ArcRef<DirDB, DirStat>>,
+        deep_diff: bool,
+    ) -> Self {
         let dir_path_hash = root.path_hash.clone() + &prefix;
 
+        let depth = if deep_diff {
+            FileListDepth::Deep
+        } else {
+            FileListDepth::Shallow
+        };
         let b2_clone = b2.clone();
-        let list_fut = async move { root.list_remote_files_at(&b2_clone, &prefix).await }.boxed_local();
+        let list_fut = async move { root.list_remote_files_at(&b2_clone, &prefix, depth).await }.boxed_local();
 
         Self {
-            state: FileDiffStreamState::DownloadFileList { list_fut },
-            b2,
+            state: FileDiffStreamState::DownloadFileList {
+                list_fut,
+                key: b2.key.clone(),
+            },
             dir_stat,
             dir_path_hash: Some(dir_path_hash),
+        }
+    }
+
+    /// Creates a stream that returns the files in a local directory not present on the remote
+    pub fn new_local(
+        root: Arc<BackupRoot>,
+        prefix: String,
+        dir_stat: ArcRef<DirDB, DirStat>,
+        key: &crypto::Key,
+    ) -> Self {
+        let mut local_files = HashMap::new();
+        let mut dir_path_hash = root.path_hash.clone() + &prefix;
+        Self::flatten_dirstat_files(&mut local_files, &dir_stat, &mut dir_path_hash, &key);
+
+        let diff_iter = local_files.into_iter().map(|(_, lfile)| {
+            Ok(FileDiff {
+                local: Some(lfile),
+                remote: None,
+            })
+        });
+        let diff_stream = futures::stream::iter(diff_iter).boxed_local();
+
+        Self {
+            state: FileDiffStreamState::DiffFiles { diff_stream },
+            dir_stat: None,
+            dir_path_hash: None,
         }
     }
 
@@ -132,6 +172,7 @@ impl FileDiffStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         list_fut_poll: Poll<BoxResult<Vec<RemoteFile>>>,
+        key: crypto::Key,
     ) -> Poll<Option<BoxResult<FileDiff>>> {
         match list_fut_poll {
             Poll::Pending => Poll::Pending,
@@ -141,8 +182,12 @@ impl FileDiffStream {
             }
             Poll::Ready(Ok(remote_files)) => {
                 let mut local_files = HashMap::new();
-                let mut dir_path_hash = self.dir_path_hash.take().unwrap();
-                Self::flatten_dirstat_files(&mut local_files, &self.dir_stat, &mut dir_path_hash, &self.b2.key);
+
+                // For remote-only diffs the local dir stat is None
+                if let Some(ref local_dir_stat) = self.dir_stat.take() {
+                    let mut dir_path_hash = self.dir_path_hash.take().unwrap();
+                    Self::flatten_dirstat_files(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
+                }
 
                 let mut diff_stream = Self::make_diff_stream(local_files, remote_files);
                 let next = diff_stream.poll_next_unpin(cx);
@@ -161,13 +206,46 @@ impl Stream for FileDiffStream {
     type Item = BoxResult<FileDiff>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.state {
-            FileDiffStreamState::DownloadFileList { ref mut list_fut } => {
+        match &mut self.state {
+            FileDiffStreamState::DownloadFileList { list_fut, key } => {
                 let list_fut_poll = list_fut.poll_unpin(cx);
-                self.poll_download_fut(cx, list_fut_poll)
+                let key = key.clone();
+                self.poll_download_fut(cx, list_fut_poll, key)
             }
-            FileDiffStreamState::DiffFiles { ref mut diff_stream } => diff_stream.poll_next_unpin(cx),
+            FileDiffStreamState::DiffFiles { diff_stream } => diff_stream.poll_next_unpin(cx),
             FileDiffStreamState::Failed => Poll::Ready(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::dirdb::diff::files::FileDiffStream;
+    use crate::test_helpers::*;
+    use futures::{executor::block_on, StreamExt};
+    use owning_ref::ArcRef;
+    use std::sync::Arc;
+
+    #[test]
+    fn local_diff_stream_returns_all_files() {
+        let key = test_key();
+        let prefix = "/".to_string();
+        let root = Arc::new(test_backup_root(&key));
+        let dirdb = ArcRef::new(Arc::new(test_dirdb()));
+        let dirstat = dirdb.map(|d| &d.root);
+
+        let mut stream = FileDiffStream::new_local(root, prefix, dirstat, &key);
+
+        let mut filenames = vec![];
+        while let Some(item) = block_on(stream.next()) {
+            let item = item.unwrap();
+            assert!(!item.remote.is_some()); // This is a local stream
+            let local_file = item.local.unwrap();
+            filenames.push(local_file.rel_path.to_str().unwrap().to_string());
+        }
+        filenames.sort();
+
+        // Yup. We're gleefuly hardcoding the contents for this test!
+        assert_eq!(filenames, vec!["a", "b", "dir/c"]);
     }
 }

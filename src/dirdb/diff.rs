@@ -5,7 +5,7 @@ use crate::crypto::Key;
 use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
 use futures::stream::{SelectAll, Stream, StreamExt};
-use futures::Poll;
+use futures::task::Poll;
 use owning_ref::ArcRef;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -23,23 +23,13 @@ pub struct DirDiff {
 
 impl DirDiff {
     pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: Option<DirDB>) -> BoxResult<DirDiff> {
-        let mut diff_stream = SelectAll::new();
-        let local: ArcRef<DirDB> = local.into();
-        diff_stream.push(FileDiffStream::new(
-            root,
-            b2,
-            "/".to_owned(),
-            local.clone().map(|db| &db.root),
-        ));
-
-        let remote = match remote {
-            Some(remote) => remote,
-            None => DirDB::new_empty(),
-        };
-
+        let remote = remote.unwrap_or_else(DirDB::new_empty);
         let pessimistic_dirdb = DirDB {
             root: dirs::merge_dirstats_pessimistic(&local.root, &remote.root),
         };
+
+        let local = ArcRef::new(local).map(|db| &db.root);
+        let diff_stream = dirs::diff_dirs(root, b2, local, &remote.root);
 
         Ok(DirDiff {
             diff_stream,

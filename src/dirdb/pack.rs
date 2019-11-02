@@ -165,6 +165,14 @@ fn best_encoding_settings(stat: &DirStat, info: &PackingInfo) -> EncodingSetting
 }
 
 impl DirStat {
+    // A very internal "how-the-sausage-is-made" type function.
+    // The complexity/many arguments are acknowledged and allowed for performance reasons.
+    //
+    // The path_hash_str/key args are for re-computing the secure dir name hashes as needed
+    // (hashes are big, we store the compressed name instead when it turns out to be shorter)
+    // The reader args are the separate bitstreams that make up the format, we mux those
+    // bitstreams together in a particular (variable, dynamic) order to rebuild the directory tree.
+    #[allow(clippy::too_many_arguments)]
     fn subdirs_from_bytes<R: Read>(
         parent_rel_path: Option<&PathBuf>,
         path_hash_str: &mut String,
@@ -316,8 +324,8 @@ impl DirStat {
         Ok(())
     }
 
-    /// Serialized the directory stats into a writer.
-    /// On error partial data may have been written.
+    /// Serialized the directory stats into a writer. On error partial data may have been written.
+    /// This kind of error is best handled by giving up, the user's machine ain't working today.
     pub fn serialize_into<W: Write>(&self, writer: &mut W) -> BoxResult<()> {
         let packing_info = dirnames_packing_info(self)?;
         let encoding_settings = best_encoding_settings(&self, &packing_info);

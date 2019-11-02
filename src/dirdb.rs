@@ -12,7 +12,7 @@ use self::dirstat::DirStat;
 use self::filestat::FileStat;
 
 pub struct DirDB {
-    root: DirStat,
+    pub root: DirStat,
 }
 
 impl DirDB {

@@ -79,7 +79,7 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
 }
 
 pub fn hash_path_dir_into(
-    dir_path_hash: &String,
+    dir_path_hash: &str,
     secret_dirname: &[u8],
     key: &Key,
     out: &mut [u8; DIRNAME_PATH_HASH_LEN],

@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures::{stream::Stream, Poll};
+use futures::{stream::Stream, task::Poll};
 use hyper::Chunk;
 use std::cmp;
 use std::error::Error;
