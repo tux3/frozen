@@ -9,6 +9,9 @@ use indicatif::ProgressBar;
 pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
                     root: impl Borrow<BackupRoot>, b2: impl Borrow<B2>, file: RemoteFile) {
     let _permit_guard = rate_limiter.borrow().borrow_delete_permit().await;
+    if progress.verbose() {
+        progress.println(format!("Deleting {}", file.rel_path.display()));
+    }
 
     let b2 = b2.borrow();
     let root = root.borrow();

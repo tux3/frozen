@@ -48,10 +48,10 @@ pub struct Progress {
 impl Progress {
     pub fn new(verbose: bool) -> Self {
         let multi_progress = Arc::new(MultiProgress::with_draw_target(ProgressDrawTarget::stdout()));
-        let diff_progress = Self::create_progress_bar(ProgressType::Diff);
-        let upload_progress = Self::create_progress_bar(ProgressType::Upload);
-        let download_progress = Self::create_progress_bar(ProgressType::Download);
-        let delete_progress = Self::create_progress_bar(ProgressType::Delete);
+        let diff_progress = Self::create_progress_bar(ProgressType::Diff, verbose);
+        let upload_progress = Self::create_progress_bar(ProgressType::Upload, verbose);
+        let download_progress = Self::create_progress_bar(ProgressType::Download, verbose);
+        let delete_progress = Self::create_progress_bar(ProgressType::Delete, verbose);
 
         Self {
             multi_progress,
@@ -64,12 +64,12 @@ impl Progress {
         }
     }
 
-    fn create_progress_bar(bar_type: ProgressType) -> ProgressHandler {
+    fn create_progress_bar(bar_type: ProgressType, verbose: bool) -> ProgressHandler {
         let bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden())
             .with_style(ProgressStyle::default_bar()
                 .template(bar_type.style_template())
                 .progress_chars("=> "));
-        ProgressHandler::new(bar)
+        ProgressHandler::new(bar, verbose)
     }
 
     /// Returns a handler to report progress with

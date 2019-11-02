@@ -17,6 +17,9 @@ pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: Progress
     let root = root.borrow();
 
     let mut _permit_guard = rate_limiter.borrow().borrow_download_permit().await;
+    if progress.verbose() {
+        progress.println(format!("Downloading {}", file.rel_path.display()));
+    }
 
     let filehash = root.path_hash.clone()+"/"+&file.rel_path_hash;
     let encrypted = b2.download_file(&filehash).await

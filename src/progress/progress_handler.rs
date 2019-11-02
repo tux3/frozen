@@ -7,14 +7,16 @@ pub struct ProgressHandler {
     pub(super) bar: ProgressBar,
     bar_len: Arc<AtomicUsize>,
     errors_count: Arc<AtomicUsize>,
+    verbose: bool,
 }
 
 impl ProgressHandler {
-    pub(super) fn new(bar: ProgressBar) -> Self {
+    pub(super) fn new(bar: ProgressBar, verbose: bool) -> Self {
         Self {
             bar,
             bar_len: Arc::new(AtomicUsize::new(0)),
             errors_count: Arc::new(AtomicUsize::new(0)),
+            verbose,
         }
     }
 
@@ -24,7 +26,6 @@ impl ProgressHandler {
     }
 
     pub fn report_success(&self) {
-        // TODO: Should print a message if verbose == true
         self.bar.inc(1);
     }
 
@@ -39,6 +40,11 @@ impl ProgressHandler {
 
     pub fn finish(&self) {
         self.bar.finish_at_current_pos();
+    }
+
+    /// When true, it is okay to println() verbose progress information
+    pub fn verbose(&self) -> bool {
+        self.verbose
     }
 
     /// Returns the number of progress errors logged since the output started

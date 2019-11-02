@@ -18,6 +18,9 @@ pub async fn upload(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHa
     let root = root.borrow();
 
     let mut permit = rate_limiter.borrow().borrow_upload_permit().await;
+    if progress.verbose() {
+        progress.println(format!("Uploading {}", file.rel_path.display()));
+    }
 
     if permit.is_none() {
         let upload_url = match b2.get_upload_url().await {
