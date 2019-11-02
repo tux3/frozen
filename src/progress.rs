@@ -123,6 +123,16 @@ impl Progress {
 
 impl Drop for Progress {
     fn drop(&mut self) {
+        self.diff_progress.finish();
+        self.upload_progress.finish();
+        self.download_progress.finish();
+        self.delete_progress.finish();
         self.join();
+
+        // After we drop multi_progress, our progress_handlers must stop drawing to it or they'll panic on unwrap
+        self.diff_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
+        self.upload_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
+        self.download_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
+        self.delete_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
     }
 }

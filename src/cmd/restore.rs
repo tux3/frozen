@@ -11,6 +11,7 @@ use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
 use crate::progress::{Progress, ProgressType};
+use crate::signal::SignalHandler;
 
 pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
@@ -24,18 +25,14 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
-    let root = root::open_root(&b2, &mut roots, &path).await?;
+    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
+    let mut root = root::open_root(&b2, &mut roots, &path).await?;
+    let arc_root = Arc::new(root.clone());
 
-    let mut arc_root = Arc::new(root.clone());
+    let restore_fut = restore_one_root(config, target, b2, arc_root);
+    let result = sighandler.interruptible(restore_fut).await;
 
-    let result = restore_one_root(config, target, b2, arc_root.clone()).await;
-
-    if let Some(root) = Arc::get_mut(&mut arc_root) {
-        root.unlock().await?;
-    } else {
-        eprintln!("Error: Failed to unlock the backup root (Arc still has {} holders!)", Arc::strong_count(&arc_root));
-    }
-
+    root.unlock().await?;
     result
 }
 

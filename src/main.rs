@@ -8,12 +8,12 @@ mod cmd;
 mod config;
 mod net;
 mod progress;
-mod signal;
 mod crypto;
 mod data;
 mod dirdb;
 mod action;
 mod prompt;
+mod signal;
 
 #[tokio::main]
 async fn async_main() -> BoxResult<()> {
@@ -91,8 +91,6 @@ async fn async_main() -> BoxResult<()> {
 }
 
 fn main() {
-    signal::setup_signal_handler();
-
     let return_code = match async_main() {
         Ok(()) => 0,
         Err(err) => {

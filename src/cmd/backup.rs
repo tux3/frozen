@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use clap::ArgMatches;
-use futures::stream::StreamExt;
+use futures::StreamExt;
 use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
@@ -11,6 +11,7 @@ use crate::data::root::{self, BackupRoot};
 use crate::data::paths::path_from_arg;
 use crate::dirdb::{DirDB, diff::DirDiff, diff::FileDiff};
 use crate::progress::{Progress, ProgressType};
+use crate::signal::SignalHandler;
 
 pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
@@ -25,28 +26,18 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
-    let root = root::open_create_root(&b2, &mut roots, &target).await?;
+    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
+    let mut root = root::open_create_root(&b2, &mut roots, &target).await?;
+    let arc_root = Arc::new(root.clone());
 
-    let mut arc_root = Arc::new(root.clone());
+    let backup_fut = backup_one_root(config, args, path, b2, arc_root);
+    let result = sighandler.interruptible(backup_fut).await;
 
-    let result = backup_one_root(config, args, path, b2, arc_root.clone()).await;
-
-    if let Some(root) = Arc::get_mut(&mut arc_root) {
-        root.unlock().await?;
-    } else {
-        eprintln!("Error: Failed to unlock the backup root (Arc still has {} holders!)", Arc::strong_count(&arc_root));
-    }
-
+    root.unlock().await?;
     result
 }
 
 pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, mut b2: b2::B2, root: Arc<BackupRoot>) -> BoxResult<()> {
-    // This is scoped to shutdown when we're done running actions on the backup folder
-    let mut action_runtime = scoped_runtime::Builder::new()
-        .name_prefix("backup-")
-        .pool_size(num_cpus::get().max(1))
-        .build()?;
-
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 4);
@@ -55,6 +46,12 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
 
     b2.progress.replace(diff_progress.clone());
     let b2 = Arc::new(b2);
+
+    // This is scoped to shutdown when we're done running actions on the backup folder
+    let mut action_runtime = scoped_runtime::Builder::new()
+        .name_prefix("backup-")
+        .pool_size(num_cpus::get().max(1))
+        .build()?;
 
     let dirdb_path = "dirdb/".to_string()+&root.path_hash;
     let remote_dirdb_fut = {

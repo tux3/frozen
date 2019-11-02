@@ -4,11 +4,11 @@ use clap::ArgMatches;
 use crate::config::Config;
 use crate::data::{root, paths::path_from_arg};
 use crate::net::b2::B2;
-use crate::signal::*;
 use crate::action::{self, scoped_runtime};
 use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
 use crate::progress::{Progress, ProgressType};
+use crate::signal::SignalHandler;
 
 pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "target")?;
@@ -21,8 +21,9 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let mut roots = root::fetch_roots(&b2).await?;
 
     println!("Deleting backup folder {}", path.display());
+    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
     let mut root = root::open_root(&b2, &mut roots, &path).await?;
-    let result = delete_one_root(config, &mut b2, &path, &root, &mut roots).await;
+    let result = sighandler.interruptible(delete_one_root(config, &mut b2, &path, &root, &mut roots)).await;
 
     root.unlock().await?;
     result
@@ -30,8 +31,6 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 
 async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
                 root: &root::BackupRoot, roots: &mut Vec<root::BackupRoot>) -> BoxResult<()> {
-    err_on_signal()?;
-
     // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
     let dirdb_path = "dirdb/".to_string()+&root.path_hash;
     b2.hide_file(&dirdb_path).await?;
@@ -46,20 +45,20 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
         b2.delete_file_version(&dirdb_version).await?;
     }
 
+    let progress = Progress::new(config.verbose);
+    let delete_progress = progress.show_progress_bar(ProgressType::Delete, rfiles.len());
+    b2.progress.replace(delete_progress.clone());
+
     // This is scoped to shutdown when we're done running actions on the folder
     let action_runtime = scoped_runtime::Builder::new()
         .name_prefix("delete-")
         .pool_size(num_cpus::get().max(1))
         .build()?;
-    let progress = Progress::new(config.verbose);
-    let delete_progress = progress.show_progress_bar(ProgressType::Delete, rfiles.len());
-    b2.progress.replace(delete_progress.clone());
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
         action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(),
                                             root.clone(), b2.clone(), rfile))?;
-        err_on_signal()?;
     }
     action_runtime.shutdown_on_idle().await;
     delete_progress.finish();

@@ -1,22 +1,29 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::future::Future;
+use tokio_net::signal::{ctrl_c, CtrlC};
+use futures::{FutureExt, StreamExt};
+use futures::future::{select, Either};
 use crate::box_result::BoxResult;
 
-static SIGNAL_FLAG: AtomicBool = AtomicBool::new(false);
-
-pub fn setup_signal_handler() {
-    ctrlc::set_handler(|| {
-        SIGNAL_FLAG.store(true, Ordering::Release);
-    }).expect("Error setting Ctrl-C handler");
+/// On creation this struct starts catching Ctrl+C (and never stops, even if dropped)
+pub struct SignalHandler {
+    stream: CtrlC,
 }
 
-pub fn caught_signal() -> bool {
-    SIGNAL_FLAG.load(Ordering::Acquire)
-}
+impl SignalHandler {
+    pub fn new() -> BoxResult<Self> {
+        Ok(Self {
+            stream: ctrl_c()?
+        })
+    }
 
-pub fn err_on_signal() -> BoxResult<()> {
-    if caught_signal() {
-        Err(From::from("Interrupted by signal"))
-    } else {
-        Ok(())
+    /// Runs the future, but interrupts it and returns Err if Ctrl+C is pressed
+    pub async fn interruptible(&mut self, fut: impl Future<Output=BoxResult<()>>) -> BoxResult<()> {
+        let int_fut = self.stream.next();
+        let fut = fut.boxed_local();
+        match select(fut, int_fut).await {
+            Either::Left((fut_result, _int_fut)) => fut_result,
+            Either::Right((Some(()), _fut)) => Err(From::from("Interrupted by Ctrl+C")),
+            Either::Right((None, _fut)) => unreachable!("ctrl_c is supposed to be an infinite stream!"),
+        }
     }
 }
