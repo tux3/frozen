@@ -1,8 +1,8 @@
-use futures_intrusive::sync::{Semaphore, SemaphoreReleaser};
-use crossbeam::queue::ArrayQueue;
+pub use self::data_permit::RateLimitPermit;
 use crate::config::Config;
 use crate::net::b2::B2Upload;
-pub use self::data_permit::RateLimitPermit;
+use crossbeam::queue::ArrayQueue;
+use futures_intrusive::sync::{Semaphore, SemaphoreReleaser};
 
 mod data_permit;
 

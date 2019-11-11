@@ -1,14 +1,14 @@
-use std::path::{Path, PathBuf, Component};
+use crate::box_result::BoxResult;
+use clap::ArgMatches;
 use std::ffi::OsStr;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
-use clap::ArgMatches;
-use crate::box_result::BoxResult;
+use std::path::{Component, Path, PathBuf};
 
 fn remove_relative_components(path: &Path) -> BoxResult<PathBuf> {
     let mut components = Vec::new();
     let mut skip = 0;
-    let comp_iter = path.components().filter(|comp | match comp {
+    let comp_iter = path.components().filter(|comp| match comp {
         Component::CurDir => false,
         _ => true,
     });
@@ -27,13 +27,12 @@ fn remove_relative_components(path: &Path) -> BoxResult<PathBuf> {
     Ok(components.iter().rev().collect::<PathBuf>())
 }
 
-
 /// Makes a path absolute, removes '.' and '..' elements, but preserves symlinks
 /// The current working directory is taken to be `base_path`
 fn to_semi_canonical_path_from(path: &Path, base_path: &Path) -> BoxResult<PathBuf> {
     let path = remove_relative_components(&path)?;
     if path.is_absolute() {
-        return Ok(path)
+        return Ok(path);
     }
 
     Ok(base_path.join(path))

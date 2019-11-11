@@ -1,6 +1,6 @@
-use std::ops::{Deref, DerefMut};
-use futures_intrusive::sync::SemaphoreReleaser;
 use crossbeam::queue::ArrayQueue;
+use futures_intrusive::sync::SemaphoreReleaser;
+use std::ops::{Deref, DerefMut};
 
 pub struct RateLimitPermit<'rate_limiter, T> {
     _releaser: SemaphoreReleaser<'rate_limiter>,
@@ -10,7 +10,9 @@ pub struct RateLimitPermit<'rate_limiter, T> {
 
 impl<'r, T> RateLimitPermit<'r, T> {
     pub fn new(releaser: SemaphoreReleaser<'r>, data_queue: &'r ArrayQueue<Option<T>>) -> Self {
-        let data = data_queue.pop().expect("The data queue should be behind a semaphore and never underflow");
+        let data = data_queue
+            .pop()
+            .expect("The data queue should be behind a semaphore and never underflow");
         Self {
             _releaser: releaser,
             data_queue,
@@ -35,6 +37,8 @@ impl<T> DerefMut for RateLimitPermit<'_, T> {
 
 impl<T> Drop for RateLimitPermit<'_, T> {
     fn drop(&mut self) {
-        self.data_queue.push(self.data.take()).expect("The bounded data queue should never overflow");
+        self.data_queue
+            .push(self.data.take())
+            .expect("The bounded data queue should never overflow");
     }
 }

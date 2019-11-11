@@ -1,8 +1,8 @@
-use std::path::PathBuf;
-use std::fs::Metadata;
-use std::time::UNIX_EPOCH;
-use std::os::unix::fs::PermissionsExt;
 use crate::box_result::BoxResult;
+use std::fs::Metadata;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FileStat {
@@ -20,4 +20,3 @@ impl FileStat {
         })
     }
 }
-

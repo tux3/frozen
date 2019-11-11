@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::fs;
-use std::cmp::Ordering;
 use crate::box_result::BoxResult;
+use std::cmp::Ordering;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalFile {
@@ -33,11 +33,15 @@ impl LocalFile {
     }
 
     pub fn is_symlink_at(&self, root_path: &Path) -> BoxResult<bool> {
-        Ok(fs::symlink_metadata(self.full_path(root_path))?.file_type().is_symlink())
+        Ok(fs::symlink_metadata(self.full_path(root_path))?
+            .file_type()
+            .is_symlink())
     }
 
     pub fn readlink_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
-        Ok(Vec::from(fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes()))
+        Ok(Vec::from(
+            fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes(),
+        ))
     }
 
     pub fn read_all_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
@@ -46,8 +50,14 @@ impl LocalFile {
 }
 
 impl RemoteFile {
-    pub fn new(filename: &Path, fullname: &str, id: &str,
-               last_modified: u64, mode: u32, is_symlink: bool) -> RemoteFile {
+    pub fn new(
+        filename: &Path,
+        fullname: &str,
+        id: &str,
+        last_modified: u64,
+        mode: u32,
+        is_symlink: bool,
+    ) -> RemoteFile {
         Self {
             rel_path: filename.to_owned(),
             full_path_hash: fullname.to_owned(),

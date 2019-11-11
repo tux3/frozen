@@ -1,17 +1,20 @@
-use std::fs;
-use std::sync::Arc;
-use std::path::PathBuf;
-use futures::stream::StreamExt;
-use clap::ArgMatches;
-use crate::config::Config;
-use crate::data::{root, paths::path_from_arg};
-use crate::net::b2::B2;
-use crate::dirdb::{DirDB, diff::{FileDiff, DirDiff}};
 use crate::action::{self, scoped_runtime};
-use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
+use crate::config::Config;
+use crate::data::{paths::path_from_arg, root};
+use crate::dirdb::{
+    diff::{DirDiff, FileDiff},
+    DirDB,
+};
+use crate::net::b2::B2;
+use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::SignalHandler;
+use clap::ArgMatches;
+use futures::stream::StreamExt;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
@@ -36,8 +39,12 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     result
 }
 
-pub async fn restore_one_root(config: &Config, target: PathBuf,
-                              mut b2: B2, root: Arc<root::BackupRoot>) -> BoxResult<()> {
+pub async fn restore_one_root(
+    config: &Config,
+    target: PathBuf,
+    mut b2: B2,
+    root: Arc<root::BackupRoot>,
+) -> BoxResult<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 3);
@@ -51,10 +58,12 @@ pub async fn restore_one_root(config: &Config, target: PathBuf,
     let target_dirdb = Arc::new(DirDB::new_from_local(&target, &b2.key)?);
     diff_progress.report_success();
 
-    let dirdb_path = "dirdb/".to_string()+&root.path_hash;
-    let remote_dirdb = b2.download_file(&dirdb_path).await.ok().and_then(|data| {
-        DirDB::new_from_packed(&data, &b2.key).ok()
-    });
+    let dirdb_path = "dirdb/".to_string() + &root.path_hash;
+    let remote_dirdb = b2
+        .download_file(&dirdb_path)
+        .await
+        .ok()
+        .and_then(|data| DirDB::new_from_packed(&data, &b2.key).ok());
     diff_progress.report_success();
 
     let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), target_dirdb.clone(), remote_dirdb)?;
@@ -72,21 +81,38 @@ pub async fn restore_one_root(config: &Config, target: PathBuf,
         let item = item?;
 
         match item {
-            FileDiff{local, remote: Some(rfile)} => {
+            FileDiff {
+                local,
+                remote: Some(rfile),
+            } => {
                 if let Some(lfile) = local {
-                    diff_progress.println(format!("LOCAL: {}, REMOTE: {}", &lfile.full_path_hash, &rfile.full_path_hash));
+                    diff_progress.println(format!(
+                        "LOCAL: {}, REMOTE: {}",
+                        &lfile.full_path_hash, &rfile.full_path_hash
+                    ));
                     if lfile.last_modified >= rfile.last_modified {
-                        continue
+                        continue;
                     }
                 }
                 num_download_actions += 1;
-                action_runtime.spawn(action::download(rate_limiter.clone(), download_progress.clone(),
-                                                      b2.clone(), target.clone(), rfile))?;
-            },
-            FileDiff{local: Some(_), remote: None} => (),
-            FileDiff{local: None, remote: None} => unreachable!()
+                action_runtime.spawn(action::download(
+                    rate_limiter.clone(),
+                    download_progress.clone(),
+                    b2.clone(),
+                    target.clone(),
+                    rfile,
+                ))?;
+            }
+            FileDiff {
+                local: Some(_),
+                remote: None,
+            } => (),
+            FileDiff {
+                local: None,
+                remote: None,
+            } => unreachable!(),
         }
-    };
+    }
 
     let download_progress = progress.show_progress_bar(ProgressType::Download, num_download_actions);
     diff_progress.report_success();
@@ -99,6 +125,9 @@ pub async fn restore_one_root(config: &Config, target: PathBuf,
     if progress.is_complete() {
         Ok(())
     } else {
-        Err(From::from(format!("Couldn't complete all operations, {} error(s)", progress.errors_count())))
+        Err(From::from(format!(
+            "Couldn't complete all operations, {} error(s)",
+            progress.errors_count()
+        )))
     }
 }

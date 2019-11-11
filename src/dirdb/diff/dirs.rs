@@ -1,5 +1,5 @@
-use std::collections::hash_map::{HashMap, Entry};
-use super::{DirStat};
+use super::DirStat;
+use std::collections::hash_map::{Entry, HashMap};
 
 pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat {
     debug_assert!(remote.dir_name_hash == local.dir_name_hash);
@@ -26,9 +26,11 @@ pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat 
     for remote_subdir in remote.subfolders.iter() {
         match local_subdirs.entry(&remote_subdir.dir_name_hash) {
             Entry::Occupied(e) => {
-                dirstat.subfolders.push(merge_dirstats_pessimistic(e.get(), remote_subdir));
+                dirstat
+                    .subfolders
+                    .push(merge_dirstats_pessimistic(e.get(), remote_subdir));
                 e.remove();
-            },
+            }
             Entry::Vacant(_) => {
                 dirstat.subfolders.push(pessimize_dirstat(remote_subdir));
             }

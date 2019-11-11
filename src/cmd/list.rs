@@ -1,8 +1,8 @@
-use clap::ArgMatches;
+use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::root;
 use crate::net::b2::B2;
-use crate::box_result::BoxResult;
+use clap::ArgMatches;
 
 pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> BoxResult<()> {
     let keys = config.get_app_keys()?;

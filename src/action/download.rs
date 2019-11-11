@@ -1,16 +1,21 @@
-use std::borrow::Borrow;
-use std::path::{PathBuf, Path};
-use std::io::Write;
-use std::fs::{self, OpenOptions};
-use std::os::unix::fs::{symlink, OpenOptionsExt};
-use crate::net::rate_limiter::RateLimiter;
+use crate::crypto;
 use crate::data::file::RemoteFile;
 use crate::net::b2::B2;
+use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
-use crate::crypto;
+use std::borrow::Borrow;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::{symlink, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 
-pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
-                      b2: impl Borrow<B2>, target_path: impl Borrow<PathBuf>, file: RemoteFile) {
+pub async fn download(
+    rate_limiter: impl Borrow<RateLimiter>,
+    progress: ProgressHandler,
+    b2: impl Borrow<B2>,
+    target_path: impl Borrow<PathBuf>,
+    file: RemoteFile,
+) {
     let b2 = b2.borrow();
 
     let mut _permit_guard = rate_limiter.borrow().borrow_download_permit().await;
@@ -18,7 +23,9 @@ pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: Progress
         progress.println(format!("Downloading {}", file.rel_path.display()));
     }
 
-    let encrypted = b2.download_file(&file.full_path_hash).await
+    let encrypted = b2
+        .download_file(&file.full_path_hash)
+        .await
         .map_err(|err| format!("Failed to download file \"{}\": {}", file.rel_path.display(), err));
     if let Err(err) = encrypted {
         progress.report_error(&err);
@@ -38,12 +45,19 @@ pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: Progress
     let contents = zstd::decode_all(compressed.as_slice());
     compressed.clear();
     if contents.is_err() {
-        progress.report_error(&format!("Failed to decompress file \"{}\": {}", file.rel_path.display(), contents.err().unwrap()));
+        progress.report_error(&format!(
+            "Failed to decompress file \"{}\": {}",
+            file.rel_path.display(),
+            contents.err().unwrap()
+        ));
         return;
     }
     let contents = contents.unwrap();
 
-    if save_file(&file, contents, target_path.borrow(), &progress).await.is_ok() {
+    if save_file(&file, contents, target_path.borrow(), &progress)
+        .await
+        .is_ok()
+    {
         progress.report_success();
     }
 }
@@ -51,7 +65,10 @@ pub async fn download(rate_limiter: impl Borrow<RateLimiter>, progress: Progress
 async fn save_file(file: &RemoteFile, contents: Vec<u8>, target: &Path, progress: &ProgressHandler) -> Result<(), ()> {
     let save_path = target.join(&file.rel_path);
     if fs::create_dir_all(Path::new(&save_path).parent().unwrap()).is_err() {
-        progress.report_error(&format!("Failed to create path to file \"{}\"", file.rel_path.display()));
+        progress.report_error(&format!(
+            "Failed to create path to file \"{}\"",
+            file.rel_path.display()
+        ));
         return Err(());
     }
     fs::remove_file(&save_path).ok();
@@ -64,13 +81,12 @@ async fn save_file(file: &RemoteFile, contents: Vec<u8>, target: &Path, progress
     } else {
         let mut options = OpenOptions::new();
         options.mode(file.mode);
-        let mut fd = match options.write(true).create(true).truncate(true)
-            .open(save_path) {
+        let mut fd = match options.write(true).create(true).truncate(true).open(save_path) {
             Ok(x) => x,
             Err(_) => {
                 progress.report_error(&format!("Failed to open file \"{}\"", file.rel_path.display()));
                 return Err(());
-            },
+            }
         };
         if fd.write_all(contents.as_ref()).is_err() {
             progress.report_error(&format!("Failed to write file \"{}\"", file.rel_path.display()));

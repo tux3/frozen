@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use indicatif::ProgressBar;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProgressHandler {
@@ -31,7 +31,7 @@ impl ProgressHandler {
 
     pub fn report_error(&self, msg: impl AsRef<str>) {
         self.errors_count.fetch_add(1, Ordering::AcqRel);
-        self.progress_bar.println("Error: ".to_string()+msg.as_ref());
+        self.progress_bar.println("Error: ".to_string() + msg.as_ref());
     }
 
     pub fn println(&self, msg: impl Into<String>) {
@@ -54,7 +54,6 @@ impl ProgressHandler {
 
     /// Returns whether all operations have been completed successfully
     pub fn is_complete(&self) -> bool {
-        self.errors_count() == 0
-            && self.progress_bar.position() == self.bar_len.load(Ordering::Acquire) as u64
+        self.errors_count() == 0 && self.progress_bar.position() == self.bar_len.load(Ordering::Acquire) as u64
     }
 }

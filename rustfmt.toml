@@ -1,0 +1,15 @@
+edition = "2018"
+
+# Line length limits
+max_width = 120
+comment_width = 120 # Not enforced, just a guideline
+enum_discrim_align_threshold = 20 # Aligning enum variants looks good, when variants are reasonnably short
+
+# Non-standard style preferences
+overflow_delimited_expr = true # Start block expr trailing on the prev line, like closures (consistent & saves space)
+use_field_init_shorthand = true # Non-ambiguous and less noisy: the information is in the field name, once is enough
+
+# Tentatively good ideas. Can't currently see a deliberate reason to deviate from this style. May change if annoying.
+reorder_impl_items = true
+report_fixme = "Always"
+report_todo = "Always"

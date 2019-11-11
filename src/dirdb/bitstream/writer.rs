@@ -1,6 +1,6 @@
-use std::io::Write;
 use super::*;
 use crate::box_result::BoxResult;
+use std::io::Write;
 
 pub struct BitstreamWriter<'w, W: Write> {
     writer: &'w mut W,
@@ -65,7 +65,7 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         }
 
         let encoding_data_bits = self.encoding.bits - self.encoding.use_varint as usize;
-        let item_bits = (f64::log2((item+1) as f64).ceil() as usize).max(1);
+        let item_bits = (f64::log2((item + 1) as f64).ceil() as usize).max(1);
         let elems_needed = item_bits / encoding_data_bits + (item_bits % encoding_data_bits != 0) as usize;
 
         if !self.encoding.use_varint {
@@ -74,7 +74,7 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         }
 
         let mut remaining_data = item;
-        for _ in 0..elems_needed-1 {
+        for _ in 0..elems_needed - 1 {
             let continuation_bit = 1 << encoding_data_bits;
             let elem_data = remaining_data & ((1 << encoding_data_bits) - 1);
             let encoded = continuation_bit | elem_data;
@@ -110,8 +110,8 @@ impl<'w, W: Write> Drop for BitstreamWriter<'w, W> {
 
 #[cfg(test)]
 mod tests {
-    use super::BitstreamWriter;
     use super::super::Encoding;
+    use super::BitstreamWriter;
     use crate::box_result::BoxResult;
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
             encoding: Encoding {
                 use_varint: true,
                 bits: 8,
-                encoded_data_size: 5*8*1 + 3*8*2 + 1*8*3 + 1*8*10,
+                encoded_data_size: 5 * 8 * 1 + 3 * 8 * 2 + 1 * 8 * 3 + 1 * 8 * 10,
             },
             buf: 0,
             buf_used: 0,

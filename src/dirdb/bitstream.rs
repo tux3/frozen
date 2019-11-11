@@ -3,7 +3,6 @@ mod writer;
 
 ///! A simple integer bitstream reader and writer.
 ///! It is required to know the encoding (including the encoded size of the data) before encoding
-
 pub use reader::BitstreamReader;
 pub use writer::BitstreamWriter;
 
@@ -23,7 +22,6 @@ pub struct Encoding {
     /// Size in bits of the data stream to be serialized with this encoding (not counting signaling)
     pub encoded_data_size: usize,
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -54,7 +52,7 @@ mod tests {
 
     #[test]
     fn roundtrip_raw_31_bits() -> BoxResult<()> {
-        let to_encode = [0u64, 1, 17, 42, 254, 255, 25519, (std::u16::MAX/2) as u64];
+        let to_encode = [0u64, 1, 17, 42, 254, 255, 25519, (std::u16::MAX / 2) as u64];
         let mut buf = Vec::new();
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
             use_varint: false,
@@ -81,7 +79,7 @@ mod tests {
         let mut wstream = BitstreamWriter::new(&mut buf, Encoding {
             use_varint: true,
             bits: 14,
-            encoded_data_size: (to_encode.len() + 2)*14 + ENCODING_SIGNALING_OVERHEAD,
+            encoded_data_size: (to_encode.len() + 2) * 14 + ENCODING_SIGNALING_OVERHEAD,
         });
         for &val in to_encode.iter() {
             wstream.write(val)?;

@@ -1,10 +1,10 @@
+use crate::box_result::BoxResult;
+use futures::future::RemoteHandle;
 use std::future::Future;
 use std::sync::Mutex;
-use futures::future::RemoteHandle;
 use tokio_executor::{threadpool, Executor, SpawnError};
 use tokio_net::driver::{self, Reactor};
-use tokio_timer::{timer, Timer, clock, clock::Clock};
-use crate::box_result::BoxResult;
+use tokio_timer::{clock, clock::Clock, timer, Timer};
 
 /// This runtime is meant to be used in a local scope of an async fn
 /// Essentially a simplified copy of tokio's Runtime where shutdown functions can be awaited
@@ -70,30 +70,26 @@ impl Builder {
             .custom_park(move |worker_id| {
                 let index = worker_id.to_usize();
 
-                timers[index]
-                    .lock()
-                    .unwrap()
-                    .take()
-                    .unwrap()
+                timers[index].lock().unwrap().take().unwrap()
             })
             .build();
 
-        Ok(ScopedRuntime {
-            executor,
-        })
+        Ok(ScopedRuntime { executor })
     }
 }
 
 impl ScopedRuntime {
     pub fn spawn<F>(&self, future: F) -> Result<(), SpawnError>
-        where F: Future<Output = ()> + Send + 'static,
+    where
+        F: Future<Output = ()> + Send + 'static,
     {
         self.executor.sender().spawn(future)
     }
 
     pub fn spawn_with_handle<F>(&mut self, future: F) -> Result<RemoteHandle<F::Output>, SpawnError>
-        where F: Future + Send + 'static,
-              F::Output: Send,
+    where
+        F: Future + Send + 'static,
+        F::Output: Send,
     {
         let sender = self.executor.sender_mut() as &mut dyn Executor;
         sender.spawn_with_handle(future)

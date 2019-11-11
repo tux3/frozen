@@ -1,18 +1,18 @@
-use std::path::Path;
-use crate::crypto::{Key, encrypt, decrypt};
 use crate::box_result::BoxResult;
+use crate::crypto::{decrypt, encrypt, Key};
+use std::path::Path;
 
+mod bitstream;
+pub mod diff;
 pub mod dirstat;
 pub mod filestat;
 pub mod pack;
-pub mod diff;
-mod bitstream;
 
 use self::dirstat::DirStat;
 use self::filestat::FileStat;
 
 pub struct DirDB {
-    root: DirStat
+    root: DirStat,
 }
 
 impl DirDB {
@@ -25,7 +25,7 @@ impl DirDB {
                 dir_name: None,
                 dir_name_hash: [0; 8],
                 content_hash: [0; 8],
-            }
+            },
         }
     }
 
@@ -39,9 +39,7 @@ impl DirDB {
         let mut path_hash_str = "/".to_string();
         root.recompute_dir_name_hashes(&mut path_hash_str, key);
 
-        Ok(Self {
-            root,
-        })
+        Ok(Self { root })
     }
 
     pub fn new_from_packed(packed: &[u8], key: &Key) -> BoxResult<Self> {

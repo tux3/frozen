@@ -1,15 +1,15 @@
-use std::vec::Vec;
-use std::path::{PathBuf, Path};
+use crate::box_result::BoxResult;
+use base64;
+use bincode::{deserialize, serialize};
+use blake2::VarBlake2b;
+use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
+use digest::{Digest, Input, VariableOutput};
+use libsodium_sys;
+use sha1::Sha1;
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
-use libsodium_sys;
-use bincode::{serialize, deserialize};
-use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
-use base64;
-use blake2::VarBlake2b;
-use sha1::Sha1;
-use digest::{Digest, Input, VariableOutput};
-use crate::box_result::BoxResult;
+use std::path::{Path, PathBuf};
+use std::vec::Vec;
 
 pub use sodiumoxide::crypto::secretbox::Key;
 
@@ -29,9 +29,14 @@ pub fn derive_key(pwd: &str, salt: &str) -> Key {
     let salt = pwhash::Salt::from_slice(hash.as_ref()).unwrap();
     {
         let secretbox::Key(ref mut kb) = key;
-        pwhash::derive_key(kb, pwd.as_ref(), &salt,
-                           pwhash::OPSLIMIT_INTERACTIVE,
-                           pwhash::MEMLIMIT_INTERACTIVE).unwrap();
+        pwhash::derive_key(
+            kb,
+            pwd.as_ref(),
+            &salt,
+            pwhash::OPSLIMIT_INTERACTIVE,
+            pwhash::MEMLIMIT_INTERACTIVE,
+        )
+        .unwrap();
     }
     key
 }
@@ -46,11 +51,13 @@ pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
         // Safe because:
         // 1. We set the capacity >= clen
         // 2. crypto_secretbox_easy writes exactly clen
-        libsodium_sys::crypto_secretbox_easy(cipher.as_mut_ptr(),
-                                   plain.as_ptr(),
-                                   plain.len() as u64,
-                                   nonceb.as_ptr(),
-                                   key.as_ptr());
+        libsodium_sys::crypto_secretbox_easy(
+            cipher.as_mut_ptr(),
+            plain.as_ptr(),
+            plain.len() as u64,
+            nonceb.as_ptr(),
+            key.as_ptr(),
+        );
         cipher.set_len(clen);
     }
 
@@ -68,11 +75,15 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
         *dst = *src;
     }
 
-    secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key)
-        .map_err(|_| From::from("Decryption failed"))
+    secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key).map_err(|_| From::from("Decryption failed"))
 }
 
-pub fn hash_path_dir_into(dir_path_hash: &String, secret_dirname: &[u8], key: &Key, out: &mut [u8; DIRNAME_PATH_HASH_LEN]) {
+pub fn hash_path_dir_into(
+    dir_path_hash: &String,
+    secret_dirname: &[u8],
+    key: &Key,
+    out: &mut [u8; DIRNAME_PATH_HASH_LEN],
+) {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
     hasher.input(dir_path_hash.as_bytes());

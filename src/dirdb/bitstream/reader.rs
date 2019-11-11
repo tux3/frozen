@@ -10,7 +10,7 @@ impl<'r> BitstreamReader<'r> {
     pub fn new(mut data: &'r [u8]) -> Self {
         let encoded_data_size = leb128::read::unsigned(&mut data).unwrap() as usize;
 
-        let header = data[0] >> (8-ENCODING_SIGNALING_OVERHEAD);
+        let header = data[0] >> (8 - ENCODING_SIGNALING_OVERHEAD);
         let use_varint = header >> ENCODING_BITS_BITS == 1;
         let bits = (header & ((1 << ENCODING_BITS_BITS) - 1)) as usize;
 
@@ -67,7 +67,7 @@ impl<'r> BitstreamReader<'r> {
             let elem = self.read_bits(self.encoding.bits);
             result |= (elem & !cont_flag) << cur_shift;
             if elem & cont_flag == 0 {
-                return result
+                return result;
             }
             cur_shift += self.encoding.bits - 1
         }
@@ -80,12 +80,11 @@ impl<'r> BitstreamReader<'r> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use super::BitstreamReader;
     use super::super::Encoding;
+    use super::BitstreamReader;
+    use std::error::Error;
 
     #[test]
     fn read_bits_by_8() -> Result<(), Box<dyn Error>> {
@@ -96,7 +95,7 @@ mod tests {
             encoding: Encoding {
                 use_varint: false,
                 bits: 8,
-                encoded_data_size: 0
+                encoded_data_size: 0,
             },
         };
         for &byte in to_read.iter() {
@@ -108,7 +107,7 @@ mod tests {
 
     #[test]
     fn read_bits_by_5() -> Result<(), Box<dyn Error>> {
-        let elems = [5u32, 16, 31,11, 0, 7];
+        let elems = [5u32, 16, 31, 11, 0, 7];
         let concat: u32 = elems.iter().fold(0, |sum, e| (sum << 5) | e) << 2;
         let to_read = concat.to_be_bytes();
         let mut stream = BitstreamReader {
@@ -117,7 +116,7 @@ mod tests {
             encoding: Encoding {
                 use_varint: false,
                 bits: 8,
-                encoded_data_size: 0
+                encoded_data_size: 0,
             },
         };
         for &elem in elems.iter() {
@@ -137,7 +136,7 @@ mod tests {
             encoding: Encoding {
                 use_varint: false,
                 bits: 8,
-                encoded_data_size: 0
+                encoded_data_size: 0,
             },
         };
         assert_eq!(stream.read_bits(3), 0b111);

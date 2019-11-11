@@ -1,12 +1,12 @@
-use std::io::prelude::*;
-use std::fs::File;
+use crate::box_result::BoxResult;
+use crate::crypto::{decrypt, derive_key, encrypt, AppKeys};
+use crate::prompt::{prompt, prompt_password, prompt_yes_no};
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::env;
 use std::error::Error;
-use serde::{Serialize, Deserialize};
-use serde_json;
-use crate::prompt::{prompt, prompt_password, prompt_yes_no};
-use crate::crypto::{AppKeys, derive_key, decrypt, encrypt};
-use crate::box_result::BoxResult;
+use std::fs::File;
+use std::io::prelude::*;
 
 static CONFIG_FILE_RELPATH: &str = ".config/frozen.json";
 pub static UPLOAD_THREADS_DEFAULT: u16 = 6;
@@ -88,12 +88,12 @@ impl Config {
     }
 
     fn new_from_file() -> Result<Self, Box<dyn Error>> {
-        let mut file : File = File::open(Self::get_file_path())?;
+        let mut file: File = File::open(Self::get_file_path())?;
         let contents = &mut String::new();
         file.read_to_string(contents)?;
         let config_file: ConfigFile = serde_json::from_str(&contents)?;
 
-        Ok(Config{
+        Ok(Config {
             encrypted_app_key: config_file.encrypted_app_key,
             app_key_id: config_file.app_key_id,
             bucket_name: config_file.bucket_name,
@@ -107,7 +107,7 @@ impl Config {
 
     fn save(&self) -> Result<(), Box<dyn Error>> {
         let mut file = File::create(Self::get_file_path())?;
-        let config_file = ConfigFile{
+        let config_file = ConfigFile {
             encrypted_app_key: self.encrypted_app_key.clone(),
             app_key_id: self.app_key_id.clone(),
             bucket_name: self.bucket_name.clone(),
@@ -125,6 +125,6 @@ impl Config {
 
     fn get_file_path() -> String {
         let home = env::var("HOME").unwrap();
-        home+"/"+CONFIG_FILE_RELPATH
+        home + "/" + CONFIG_FILE_RELPATH
     }
 }

@@ -1,7 +1,7 @@
-use std::thread::JoinHandle;
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::cell::Cell;
 use std::sync::Arc;
-use indicatif::{MultiProgress, ProgressDrawTarget, ProgressBar, ProgressStyle};
+use std::thread::JoinHandle;
 
 mod progress_handler;
 pub use progress_handler::*;
@@ -56,10 +56,11 @@ impl Progress {
     }
 
     fn create_progress_bar(bar_type: ProgressType, verbose: bool) -> ProgressHandler {
-        let progress_bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden())
-            .with_style(ProgressStyle::default_bar()
+        let progress_bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden()).with_style(
+            ProgressStyle::default_bar()
                 .template(bar_type.style_template())
-                .progress_chars("=> "));
+                .progress_chars("=> "),
+        );
         ProgressHandler::new(progress_bar, verbose)
     }
 
@@ -130,9 +131,17 @@ impl Drop for Progress {
         self.join();
 
         // After we drop multi_progress, our progress_handlers must stop drawing to it or they'll panic on unwrap
-        self.diff_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
-        self.upload_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
-        self.download_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
-        self.delete_progress.progress_bar.set_draw_target(ProgressDrawTarget::hidden());
+        self.diff_progress
+            .progress_bar
+            .set_draw_target(ProgressDrawTarget::hidden());
+        self.upload_progress
+            .progress_bar
+            .set_draw_target(ProgressDrawTarget::hidden());
+        self.download_progress
+            .progress_bar
+            .set_draw_target(ProgressDrawTarget::hidden());
+        self.delete_progress
+            .progress_bar
+            .set_draw_target(ProgressDrawTarget::hidden());
     }
 }

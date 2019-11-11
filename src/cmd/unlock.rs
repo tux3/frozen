@@ -1,8 +1,8 @@
-use clap::ArgMatches;
-use crate::config::Config;
-use crate::data::{root, paths::path_from_arg};
-use crate::net::b2::B2;
 use crate::box_result::BoxResult;
+use crate::config::Config;
+use crate::data::{paths::path_from_arg, root};
+use crate::net::b2::B2;
+use clap::ArgMatches;
 
 pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResult<()> {
     let path = path_from_arg(args, "target")?;

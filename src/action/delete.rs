@@ -1,11 +1,15 @@
-use std::borrow::Borrow;
-use crate::net::rate_limiter::RateLimiter;
-use crate::net::b2::B2;
 use crate::data::file::{RemoteFile, RemoteFileVersion};
+use crate::net::b2::B2;
+use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
+use std::borrow::Borrow;
 
-pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler,
-                    b2: impl Borrow<B2>, file: RemoteFile) {
+pub async fn delete(
+    rate_limiter: impl Borrow<RateLimiter>,
+    progress: ProgressHandler,
+    b2: impl Borrow<B2>,
+    file: RemoteFile,
+) {
     let _permit_guard = rate_limiter.borrow().borrow_delete_permit().await;
     if progress.verbose() {
         progress.println(format!("Deleting {}", file.rel_path.display()));
@@ -19,7 +23,11 @@ pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHa
     };
 
     let err = b2.delete_file_version(&version).await.map_err(|err| {
-        format!("Failed to delete last version of \"{}\": {}", file.rel_path.display(), err)
+        format!(
+            "Failed to delete last version of \"{}\": {}",
+            file.rel_path.display(),
+            err
+        )
     });
     if let Err(msg) = err {
         progress.report_error(&msg);

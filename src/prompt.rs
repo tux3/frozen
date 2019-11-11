@@ -1,10 +1,10 @@
-use std::io::{Write, stdin, stdout};
 use rpassword;
+use std::io::{stdin, stdout, Write};
 
 fn prompt_readline() -> String {
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
-    let len = input.len()-1;
+    let len = input.len() - 1;
     if len > 0 {
         input.truncate(len);
     }

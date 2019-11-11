@@ -1,8 +1,8 @@
+use crate::box_result::BoxResult;
+use futures::future::{select, Either};
+use futures::{FutureExt, StreamExt};
 use std::future::Future;
 use tokio_net::signal::{ctrl_c, CtrlC};
-use futures::{FutureExt, StreamExt};
-use futures::future::{select, Either};
-use crate::box_result::BoxResult;
 
 /// On creation this struct starts catching Ctrl+C (and never stops, even if dropped)
 pub struct SignalHandler {
@@ -11,13 +11,11 @@ pub struct SignalHandler {
 
 impl SignalHandler {
     pub fn new() -> BoxResult<Self> {
-        Ok(Self {
-            stream: ctrl_c()?
-        })
+        Ok(Self { stream: ctrl_c()? })
     }
 
     /// Runs the future, but interrupts it and returns Err if Ctrl+C is pressed
-    pub async fn interruptible(&mut self, fut: impl Future<Output=BoxResult<()>>) -> BoxResult<()> {
+    pub async fn interruptible(&mut self, fut: impl Future<Output = BoxResult<()>>) -> BoxResult<()> {
         let int_fut = self.stream.next();
         let fut = fut.boxed_local();
         match select(fut, int_fut).await {

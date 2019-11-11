@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::path::Path;
-use clap::ArgMatches;
-use crate::config::Config;
-use crate::data::{root, paths::path_from_arg};
-use crate::net::b2::B2;
 use crate::action::{self, scoped_runtime};
-use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
+use crate::config::Config;
+use crate::data::{paths::path_from_arg, root};
+use crate::net::b2::B2;
+use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::SignalHandler;
+use clap::ArgMatches;
+use std::path::Path;
+use std::sync::Arc;
 
 pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "target")?;
@@ -23,16 +23,23 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     println!("Deleting backup folder {}", path.display());
     let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
     let mut root = root::open_root(&b2, &mut roots, &path).await?;
-    let result = sighandler.interruptible(delete_one_root(config, &mut b2, &path, &root, &mut roots)).await;
+    let result = sighandler
+        .interruptible(delete_one_root(config, &mut b2, &path, &root, &mut roots))
+        .await;
 
     root.unlock().await?;
     result
 }
 
-async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
-                root: &root::BackupRoot, roots: &mut Vec<root::BackupRoot>) -> BoxResult<()> {
+async fn delete_one_root(
+    config: &Config,
+    b2: &mut B2,
+    path: &Path,
+    root: &root::BackupRoot,
+    roots: &mut Vec<root::BackupRoot>,
+) -> BoxResult<()> {
     // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
-    let dirdb_path = "dirdb/".to_string()+&root.path_hash;
+    let dirdb_path = "dirdb/".to_string() + &root.path_hash;
     b2.hide_file(&dirdb_path).await?;
 
     println!("Listing remote files");
@@ -57,7 +64,12 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
-        action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), b2.clone(), rfile))?;
+        action_runtime.spawn(action::delete(
+            rate_limiter.clone(),
+            delete_progress.clone(),
+            b2.clone(),
+            rfile,
+        ))?;
     }
     action_runtime.shutdown_on_idle().await;
     delete_progress.finish();
@@ -69,6 +81,9 @@ async fn delete_one_root(config: &Config, b2: &mut B2, path: &Path,
     if progress.is_complete() {
         Ok(())
     } else {
-        Err(From::from(format!("Couldn't complete all operations, {} error(s)", progress.errors_count())))
+        Err(From::from(format!(
+            "Couldn't complete all operations, {} error(s)",
+            progress.errors_count()
+        )))
     }
 }

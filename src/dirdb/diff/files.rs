@@ -1,17 +1,17 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use futures::task::{Poll, Context};
-use futures::future::{FutureExt, LocalBoxFuture};
-use futures::stream::{Stream, StreamExt, LocalBoxStream};
-use hashbrown::hash_map::{HashMap, IntoIter};
-use owning_ref::ArcRef;
 use super::{DirDB, DirStat};
 use crate::box_result::BoxResult;
 use crate::crypto;
-use crate::data::root::BackupRoot;
-use crate::data::file::{RemoteFile, LocalFile};
-use crate::net::b2::B2;
+use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::filename_to_bytes;
+use crate::data::root::BackupRoot;
+use crate::net::b2::B2;
+use futures::future::{FutureExt, LocalBoxFuture};
+use futures::stream::{LocalBoxStream, Stream, StreamExt};
+use futures::task::{Context, Poll};
+use hashbrown::hash_map::{HashMap, IntoIter};
+use owning_ref::ArcRef;
+use std::pin::Pin;
+use std::sync::Arc;
 
 pub struct FileDiff {
     pub local: Option<LocalFile>,
@@ -40,21 +40,20 @@ impl FileDiffStream {
         let dir_path_hash = root.path_hash.clone() + &prefix;
 
         let b2_clone = b2.clone();
-        let list_fut = async move {
-            root.list_remote_files_at(&b2_clone, &prefix).await
-        }.boxed_local();
+        let list_fut = async move { root.list_remote_files_at(&b2_clone, &prefix).await }.boxed_local();
 
         Self {
-            state: FileDiffStreamState::DownloadFileList {
-                list_fut,
-            },
+            state: FileDiffStreamState::DownloadFileList { list_fut },
             b2,
             dir_stat,
             dir_path_hash: Some(dir_path_hash),
         }
     }
 
-    fn make_diff_stream(local_files: HashMap<String, LocalFile>, remote_files: Vec<RemoteFile>) -> impl Stream<Item = BoxResult<FileDiff>> {
+    fn make_diff_stream(
+        local_files: HashMap<String, LocalFile>,
+        remote_files: Vec<RemoteFile>,
+    ) -> impl Stream<Item = BoxResult<FileDiff>> {
         enum LocalFilesEnum<F: FnMut((String, LocalFile)) -> FileDiff> {
             HashMap(HashMap<String, LocalFile>),
             RemainingIter(std::iter::Map<IntoIter<String, LocalFile>, F>),
@@ -64,7 +63,8 @@ impl FileDiffStream {
 
         let diff_next = move || match local_files_enum {
             LocalFilesEnum::HashMap(ref mut local_files) => {
-                #[allow(clippy::while_let_on_iterator)] // This is a FnMut, we can't consume the iterator!
+                #[allow(clippy::while_let_on_iterator)]
+                // This is a FnMut, we can't consume the iterator!
                 while let Some(rfile) = remote_files_iter.next() {
                     if let Some(lfile) = local_files.remove(&rfile.full_path_hash) {
                         if lfile.last_modified != rfile.last_modified {
@@ -90,23 +90,31 @@ impl FileDiffStream {
                 local_files_enum = LocalFilesEnum::RemainingIter(iter);
                 next
             }
-            LocalFilesEnum::RemainingIter(ref mut local_files_iter) => {
-                local_files_iter.next()
-            }
+            LocalFilesEnum::RemainingIter(ref mut local_files_iter) => local_files_iter.next(),
         };
         futures::stream::iter(std::iter::from_fn(diff_next).map(Result::Ok))
     }
 
-    fn flatten_dirstat_files(files: &mut HashMap<String, LocalFile>, dirstat: &DirStat, dir_path_hash: &mut String, key: &crypto::Key) {
+    fn flatten_dirstat_files(
+        files: &mut HashMap<String, LocalFile>,
+        dirstat: &DirStat,
+        dir_path_hash: &mut String,
+        key: &crypto::Key,
+    ) {
         for filestat in dirstat.direct_files.as_ref().unwrap() {
             let mut full_path_hash = dir_path_hash.clone();
-            crypto::hash_path_filename_into(dir_path_hash.as_bytes(), filename_to_bytes(&filestat.rel_path).unwrap(), key, &mut full_path_hash);
+            crypto::hash_path_filename_into(
+                dir_path_hash.as_bytes(),
+                filename_to_bytes(&filestat.rel_path).unwrap(),
+                key,
+                &mut full_path_hash,
+            );
 
             let lfile = LocalFile {
                 rel_path: filestat.rel_path.clone(),
                 full_path_hash,
                 last_modified: filestat.last_modified,
-                mode: filestat.mode
+                mode: filestat.mode,
             };
             files.insert(lfile.full_path_hash.clone(), lfile);
         }
@@ -120,7 +128,11 @@ impl FileDiffStream {
         }
     }
 
-    fn poll_download_fut(mut self: Pin<&mut Self>, cx: &mut Context<'_>, list_fut_poll: Poll<BoxResult<Vec<RemoteFile>>>) -> Poll<Option<BoxResult<FileDiff>>> {
+    fn poll_download_fut(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        list_fut_poll: Poll<BoxResult<Vec<RemoteFile>>>,
+    ) -> Poll<Option<BoxResult<FileDiff>>> {
         match list_fut_poll {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Err(e)) => {
@@ -153,7 +165,7 @@ impl Stream for FileDiffStream {
             FileDiffStreamState::DownloadFileList { ref mut list_fut } => {
                 let list_fut_poll = list_fut.poll_unpin(cx);
                 self.poll_download_fut(cx, list_fut_poll)
-            },
+            }
             FileDiffStreamState::DiffFiles { ref mut diff_stream } => diff_stream.poll_next_unpin(cx),
             FileDiffStreamState::Failed => Poll::Ready(None),
         }

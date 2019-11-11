@@ -1,19 +1,19 @@
-use std::io::{self, Read};
+use bytes::Bytes;
+use futures::{stream::Stream, Poll};
+use hyper::Chunk;
+use std::cmp;
 use std::error::Error;
+use std::io::{self, Read};
 use std::pin::Pin;
 use std::task::Context;
-use std::cmp;
-use futures::{stream::Stream, Poll};
-use bytes::Bytes;
-use hyper::Chunk;
 
-const DATA_READER_MIN_CHUNK_SIZE: usize = 4*1024;
-const DATA_READER_MAX_CHUNK_SIZE: usize = 4*1024*1024;
+const DATA_READER_MIN_CHUNK_SIZE: usize = 4 * 1024;
+const DATA_READER_MAX_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
 pub struct ProgressDataReader {
     data: Bytes,
     pos: usize,
-    silent: bool
+    silent: bool,
 }
 
 impl ProgressDataReader {
@@ -55,12 +55,14 @@ impl Clone for ProgressDataReader {
 impl Stream for ProgressDataReader {
     type Item = Result<Chunk, Box<dyn Error + Sync + Send + 'static>>;
 
-    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>,) -> Poll<Option<Self::Item>> {
-        let chunk_size = clamp::clamp(DATA_READER_MIN_CHUNK_SIZE,
-                                      self.data.len() / 200,
-                                      DATA_READER_MAX_CHUNK_SIZE);
-        let read_size = cmp::min(chunk_size, self.len()-self.pos);
-        let chunk_slice = self.data.slice(self.pos, self.pos+read_size);
+    fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let chunk_size = clamp::clamp(
+            DATA_READER_MIN_CHUNK_SIZE,
+            self.data.len() / 200,
+            DATA_READER_MAX_CHUNK_SIZE,
+        );
+        let read_size = cmp::min(chunk_size, self.len() - self.pos);
+        let chunk_slice = self.data.slice(self.pos, self.pos + read_size);
         self.pos += read_size;
 
         if !self.silent {
@@ -73,7 +75,7 @@ impl Stream for ProgressDataReader {
 
 impl Read for ProgressDataReader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        let read_size = cmp::min(buf.len(), self.len()-self.pos);
+        let read_size = cmp::min(buf.len(), self.len() - self.pos);
         let (_, remaining) = self.data.split_at(self.pos);
         let (target, _) = remaining.split_at(read_size);
         buf[..read_size].copy_from_slice(target);

@@ -1,11 +1,11 @@
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use blake2::VarBlake2b;
-use blake2::digest::{Input, VariableOutput};
 use super::FileStat;
-use crate::data::paths::path_to_bytes;
 use crate::box_result::BoxResult;
 use crate::crypto::{self, Key};
+use crate::data::paths::path_to_bytes;
+use blake2::digest::{Input, VariableOutput};
+use blake2::VarBlake2b;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 #[derive(Default, Debug)]
 pub struct DirStat {
@@ -72,7 +72,12 @@ impl DirStat {
         let cur_path_hash_str_len = path_hash_str.len();
         for subfolder in self.subfolders.iter_mut() {
             path_hash_str.truncate(cur_path_hash_str_len);
-            crypto::hash_path_dir_into(path_hash_str, &subfolder.dir_name.as_ref().unwrap(), key, &mut subfolder.dir_name_hash);
+            crypto::hash_path_dir_into(
+                path_hash_str,
+                &subfolder.dir_name.as_ref().unwrap(),
+                key,
+                &mut subfolder.dir_name_hash,
+            );
             base64::encode_config_buf(&subfolder.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
             path_hash_str.push('/');
             subfolder.recompute_dir_name_hashes(path_hash_str, key);
@@ -80,9 +85,7 @@ impl DirStat {
     }
 
     pub fn compute_direct_files_count(&self) -> u64 {
-        let subfolder_files_count = self.subfolders.iter().fold(0, |sum, e|
-            sum + e.total_files_count
-        );
+        let subfolder_files_count = self.subfolders.iter().fold(0, |sum, e| sum + e.total_files_count);
         // File counts may be inaccurate due to pessimistic DirDBs or TOCTOU, could underflow
         self.total_files_count.saturating_sub(subfolder_files_count)
     }
@@ -91,10 +94,10 @@ impl DirStat {
 impl PartialEq for DirStat {
     fn eq(&self, other: &Self) -> bool {
         self.total_files_count == other.total_files_count
-        && self.subfolders == other.subfolders
-        && self.dir_name_hash == other.dir_name_hash
-        && self.content_hash == other.content_hash
-        && self.content_hash != [0; 8]
+            && self.subfolders == other.subfolders
+            && self.dir_name_hash == other.dir_name_hash
+            && self.content_hash == other.content_hash
+            && self.content_hash != [0; 8]
     }
 }
 
@@ -102,9 +105,9 @@ impl Eq for DirStat {}
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use self::super::DirStat;
     use crate::box_result::BoxResult;
+    use std::path::Path;
 
     #[test]
     fn count_subfolders() -> BoxResult<()> {

@@ -1,22 +1,22 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-use clap::ArgMatches;
-use futures::StreamExt;
 use crate::action::{self, scoped_runtime};
-use crate::net::rate_limiter::RateLimiter;
 use crate::box_result::BoxResult;
 use crate::config::Config;
-use crate::net::b2;
-use crate::data::root::{self, BackupRoot};
 use crate::data::paths::path_from_arg;
-use crate::dirdb::{DirDB, diff::DirDiff, diff::FileDiff};
+use crate::data::root::{self, BackupRoot};
+use crate::dirdb::{diff::DirDiff, diff::FileDiff, DirDB};
+use crate::net::b2;
+use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::SignalHandler;
+use clap::ArgMatches;
+use futures::StreamExt;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
     if !path.is_dir() {
-        return Err(From::from(format!("{} is not a folder!", &path.display())))
+        return Err(From::from(format!("{} is not a folder!", &path.display())));
     }
     let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
     let keys = config.get_app_keys()?;
@@ -37,7 +37,13 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     result
 }
 
-pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathBuf, mut b2: b2::B2, root: Arc<BackupRoot>) -> BoxResult<()> {
+pub async fn backup_one_root(
+    config: &Config,
+    args: &ArgMatches<'_>,
+    path: PathBuf,
+    mut b2: b2::B2,
+    root: Arc<BackupRoot>,
+) -> BoxResult<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 4);
@@ -53,21 +59,20 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
         .pool_size(num_cpus::get().max(1))
         .build()?;
 
-    let dirdb_path = "dirdb/".to_string()+&root.path_hash;
+    let dirdb_path = "dirdb/".to_string() + &root.path_hash;
     let remote_dirdb_fut = {
         let b2 = b2.clone();
         let dirdb_path = dirdb_path.clone();
-        action_runtime.spawn_with_handle(async move {
-            b2.download_file(&dirdb_path).await
-        })?
+        action_runtime.spawn_with_handle(async move { b2.download_file(&dirdb_path).await })?
     };
 
     let local_dirdb = Arc::new(DirDB::new_from_local(&path, &b2.key)?);
     diff_progress.report_success();
 
-    let remote_dirdb = remote_dirdb_fut.await.ok().and_then(|data| {
-        DirDB::new_from_packed(&data, &b2.key).ok()
-    });
+    let remote_dirdb = remote_dirdb_fut
+        .await
+        .ok()
+        .and_then(|data| DirDB::new_from_packed(&data, &b2.key).ok());
 
     let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), local_dirdb.clone(), remote_dirdb)?;
     let path = Arc::new(path);
@@ -87,26 +92,46 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
         let item = item?;
 
         match item {
-            FileDiff{local: Some(lfile), remote} => {
+            FileDiff {
+                local: Some(lfile),
+                remote,
+            } => {
                 if let Some(rfile) = remote {
                     if rfile.last_modified >= lfile.last_modified {
-                        continue
+                        continue;
                     }
                 }
                 num_upload_actions += 1;
-                action_runtime.spawn(action::upload(rate_limiter.clone(), upload_progress.clone(),
-                                                    b2.clone(), config.compression_level, path.clone(), lfile))?;
-            },
-            FileDiff{local: None, remote: Some(rfile)} => {
+                action_runtime.spawn(action::upload(
+                    rate_limiter.clone(),
+                    upload_progress.clone(),
+                    b2.clone(),
+                    config.compression_level,
+                    path.clone(),
+                    lfile,
+                ))?;
+            }
+            FileDiff {
+                local: None,
+                remote: Some(rfile),
+            } => {
                 if keep_existing {
-                    continue
+                    continue;
                 }
                 num_delete_actions += 1;
-                action_runtime.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), b2.clone(), rfile))?;
-            },
-            FileDiff{local: None, remote: None} => unreachable!()
+                action_runtime.spawn(action::delete(
+                    rate_limiter.clone(),
+                    delete_progress.clone(),
+                    b2.clone(),
+                    rfile,
+                ))?;
+            }
+            FileDiff {
+                local: None,
+                remote: None,
+            } => unreachable!(),
         }
-    };
+    }
 
     let upload_progress = progress.show_progress_bar(ProgressType::Upload, num_upload_actions);
     let delete_progress = progress.show_progress_bar(ProgressType::Delete, num_delete_actions);
@@ -124,6 +149,9 @@ pub async fn backup_one_root(config: &Config, args: &ArgMatches<'_>, path: PathB
         b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
         Ok(())
     } else {
-        Err(From::from(format!("Couldn't complete all operations, {} error(s)", progress.errors_count())))
+        Err(From::from(format!(
+            "Couldn't complete all operations, {} error(s)",
+            progress.errors_count()
+        )))
     }
 }

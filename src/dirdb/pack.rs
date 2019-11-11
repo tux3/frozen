@@ -1,14 +1,14 @@
-use crate::dirdb::bitstream::*;
-use crate::dirdb::DirStat;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use blake2::VarBlake2b;
-use blake2::digest::{Input, VariableOutput};
-use zstd::stream::{write::Encoder, read::Decoder};
-use crate::data::paths::path_from_bytes;
-use crate::data::paths::path_to_bytes;
 use crate::box_result::BoxResult;
 use crate::crypto::{self, Key};
+use crate::data::paths::path_from_bytes;
+use crate::data::paths::path_to_bytes;
+use crate::dirdb::bitstream::*;
+use crate::dirdb::DirStat;
+use blake2::digest::{Input, VariableOutput};
+use blake2::VarBlake2b;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use zstd::stream::{read::Decoder, write::Encoder};
 
 ///! Very dense custom bitstream format for DirStat objects
 ///! We need a dense format because DirStats are uploaded in full after every change,
@@ -40,9 +40,7 @@ fn rebuild_content_hash_from_subfolders(rel_path: &Path, stat: &mut DirStat) -> 
 }
 
 fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> BoxResult<PackingInfo> {
-    let mut info = PackingInfo {
-        ..Default::default()
-    };
+    let mut info = PackingInfo { ..Default::default() };
 
     let direct_files_count = stat.compute_direct_files_count();
 
@@ -57,7 +55,12 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Box
     // We store the name instead of the hash if it's short enough, or if we genuinely need it
     // We keep names up to 2x the hash size since they typically compress very well
     info.dir_name = if need_folder_full_path {
-        Some(stat.dir_name.as_ref().expect("Cannot serialize DirStat without dir names").as_slice())
+        Some(
+            stat.dir_name
+                .as_ref()
+                .expect("Cannot serialize DirStat without dir names")
+                .as_slice(),
+        )
     } else if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
         None
     } else {
@@ -96,7 +99,7 @@ fn best_buckets_encoding(buckets: &[usize]) -> Encoding {
             let vals_encoded_bits = if val_bits == 0 {
                 varint_bits * val_count
             } else {
-                let blocks_per_val = val_bits / (varint_bits-1) + (val_bits % (varint_bits-1) != 0) as usize;
+                let blocks_per_val = val_bits / (varint_bits - 1) + (val_bits % (varint_bits - 1) != 0) as usize;
                 varint_bits * blocks_per_val * val_count
             };
             acc + vals_encoded_bits
@@ -118,9 +121,12 @@ fn best_buckets_encoding(buckets: &[usize]) -> Encoding {
 
 /// Counts the raw bits required to represent each number, without the 1 bit varint overhead
 fn count_bits_required_buckets<T, F, G>(folder: &T, buckets: &mut [usize], get_stat_num: &F, get_subfolders: &G)
-    where F: Fn(&T) -> u64, G: Fn(&T) -> &[T] {
+where
+    F: Fn(&T) -> u64,
+    G: Fn(&T) -> &[T],
+{
     let num = get_stat_num(folder);
-    let bits = f64::log2((num+1) as f64).ceil() as usize;
+    let bits = f64::log2((num + 1) as f64).ceil() as usize;
     buckets[bits] += 1;
 
     for subfolder in get_subfolders(folder) {
@@ -129,7 +135,10 @@ fn count_bits_required_buckets<T, F, G>(folder: &T, buckets: &mut [usize], get_s
 }
 
 fn best_encoding<T, F, G>(stat: &T, get_stat_num: &F, get_subfolders: &G) -> Encoding
-    where F: Fn(&T) -> u64, G: Fn(&T) -> &[T] {
+where
+    F: Fn(&T) -> u64,
+    G: Fn(&T) -> &[T],
+{
     let mut buckets = [0usize; 40];
     count_bits_required_buckets(stat, &mut buckets, get_stat_num, get_subfolders);
     best_buckets_encoding(&buckets)
@@ -140,29 +149,32 @@ fn best_encoding<T, F, G>(stat: &T, get_stat_num: &F, get_subfolders: &G) -> Enc
 /// If most numbers are in a smaller bucket, a varint of this smaller size will be more efficient
 fn best_encoding_settings(stat: &DirStat, info: &PackingInfo) -> EncodingSettings {
     EncodingSettings {
-        subdirs_counts: best_encoding(stat, &|stat| stat.subfolders.len() as u64,
-                                           &|stat| &stat.subfolders[..]),
-        file_counts: best_encoding(stat, &|stat| {
-            stat.compute_direct_files_count()
-        }, &|stat| &stat.subfolders[..]),
-        dirname_counts: best_encoding(info, &|info| {
-            match info.dir_name.as_ref() {
+        subdirs_counts: best_encoding(stat, &|stat| stat.subfolders.len() as u64, &|stat| &stat.subfolders[..]),
+        file_counts: best_encoding(stat, &|stat| stat.compute_direct_files_count(), &|stat| {
+            &stat.subfolders[..]
+        }),
+        dirname_counts: best_encoding(
+            info,
+            &|info| match info.dir_name.as_ref() {
                 Some(name) => name.len() as u64,
                 None => 0,
-            }
-        }, &|info| &info.subfolders[..]),
+            },
+            &|info| &info.subfolders[..],
+        ),
     }
 }
 
 impl DirStat {
-    fn subdirs_from_bytes<R: Read>(parent_rel_path: Option<&PathBuf>,
-                                   path_hash_str: &mut String,
-                                   key: &Key,
-                                   reader: &mut &[u8],
-                                   files_count_stream: &mut BitstreamReader,
-                                   subdirs_count_stream: &mut BitstreamReader,
-                                   dirname_count_stream: &mut BitstreamReader,
-                                   subdirs_reader: &mut R) -> BoxResult<Self> {
+    fn subdirs_from_bytes<R: Read>(
+        parent_rel_path: Option<&PathBuf>,
+        path_hash_str: &mut String,
+        key: &Key,
+        reader: &mut &[u8],
+        files_count_stream: &mut BitstreamReader,
+        subdirs_count_stream: &mut BitstreamReader,
+        dirname_count_stream: &mut BitstreamReader,
+        subdirs_reader: &mut R,
+    ) -> BoxResult<Self> {
         let direct_files_count = files_count_stream.read();
         let subfolders_count = subdirs_count_stream.read();
         let dir_name_len = dirname_count_stream.read();
@@ -187,35 +199,35 @@ impl DirStat {
         path_hash_str.push('/');
         let cur_path_hash_str_len = path_hash_str.len();
 
-        let dir_rel_path = parent_rel_path.and_then(|path| {
-            match stat.dir_name.as_ref() {
-                None => {
-                    if path.as_os_str().is_empty() {
-                        Some(path.clone())
-                    } else {
-                        None
-                    }
-                },
-                Some(dir_name) => {
-                    let mut sub_path = path.to_owned();
-                    let subdir_name: &Path = path_from_bytes(&dir_name).unwrap();
-                    sub_path.push(subdir_name);
-                    Some(sub_path)
-                },
+        let dir_rel_path = parent_rel_path.and_then(|path| match stat.dir_name.as_ref() {
+            None => {
+                if path.as_os_str().is_empty() {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            }
+            Some(dir_name) => {
+                let mut sub_path = path.to_owned();
+                let subdir_name: &Path = path_from_bytes(&dir_name).unwrap();
+                sub_path.push(subdir_name);
+                Some(sub_path)
             }
         });
 
         let mut total_files_count = direct_files_count;
         for _ in 0..subfolders_count {
             path_hash_str.truncate(cur_path_hash_str_len);
-            let subdir = Self::subdirs_from_bytes(dir_rel_path.as_ref(),
-                                                  path_hash_str,
-                                                  key,
-                                                  reader,
-                                                  files_count_stream,
-                                                  subdirs_count_stream,
-                                                  dirname_count_stream,
-                                                  subdirs_reader)?;
+            let subdir = Self::subdirs_from_bytes(
+                dir_rel_path.as_ref(),
+                path_hash_str,
+                key,
+                reader,
+                files_count_stream,
+                subdirs_count_stream,
+                dirname_count_stream,
+                subdirs_reader,
+            )?;
             total_files_count += subdir.total_files_count;
             stat.subfolders.push(subdir);
         }
@@ -232,9 +244,9 @@ impl DirStat {
 
     /// Load directory stats from a buffer produced by `serialize_into`
     pub fn new_from_bytes(reader: &mut &[u8], key: &Key) -> BoxResult<Self> {
-        let mut files_count_stream =  BitstreamReader::new(reader);
-        let mut subdirs_count_stream =  BitstreamReader::new(files_count_stream.slice_after());
-        let mut dirname_count_stream =  BitstreamReader::new(subdirs_count_stream.slice_after());
+        let mut files_count_stream = BitstreamReader::new(reader);
+        let mut subdirs_count_stream = BitstreamReader::new(files_count_stream.slice_after());
+        let mut dirname_count_stream = BitstreamReader::new(subdirs_count_stream.slice_after());
 
         let mut dirnames_data = dirname_count_stream.slice_after();
         let dirnames_data_size = leb128::read::unsigned(&mut dirnames_data)? as usize;
@@ -242,14 +254,16 @@ impl DirStat {
 
         let subdirs_data = &dirnames_data[dirnames_data_size..];
         let mut path_hash_str = String::new();
-        Self::subdirs_from_bytes(Some(&PathBuf::new()),
-                                 &mut path_hash_str,
-                                 key,
-                                 &mut &subdirs_data[..],
-                                 &mut files_count_stream,
-                                 &mut subdirs_count_stream,
-                                 &mut dirname_count_stream,
-                                 &mut dirnames_reader)
+        Self::subdirs_from_bytes(
+            Some(&PathBuf::new()),
+            &mut path_hash_str,
+            key,
+            &mut &subdirs_data[..],
+            &mut files_count_stream,
+            &mut subdirs_count_stream,
+            &mut dirname_count_stream,
+            &mut dirnames_reader,
+        )
     }
 
     fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
@@ -282,9 +296,17 @@ impl DirStat {
         Ok(())
     }
 
-    fn serialize_numeric_bitstream<T, F, G, W>(folder: &T, bitstream_writer: &mut BitstreamWriter<W>,
-                                         get_number: &F, get_subfolders: &G) -> BoxResult<()>
-        where F: Fn(&T) -> u64, G: Fn(&T) -> &[T], W: Write {
+    fn serialize_numeric_bitstream<T, F, G, W>(
+        folder: &T,
+        bitstream_writer: &mut BitstreamWriter<W>,
+        get_number: &F,
+        get_subfolders: &G,
+    ) -> BoxResult<()>
+    where
+        F: Fn(&T) -> u64,
+        G: Fn(&T) -> &[T],
+        W: Write,
+    {
         bitstream_writer.write(get_number(folder))?;
 
         for subfolder in get_subfolders(folder) {
@@ -302,26 +324,35 @@ impl DirStat {
 
         {
             let mut file_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.file_counts);
-            Self::serialize_numeric_bitstream(self, &mut file_count_bitstream_writer, &|stat| {
-                stat.compute_direct_files_count()
-            }, &|folder| &folder.subfolders[..])?;
+            Self::serialize_numeric_bitstream(
+                self,
+                &mut file_count_bitstream_writer,
+                &|stat| stat.compute_direct_files_count(),
+                &|folder| &folder.subfolders[..],
+            )?;
         }
 
         {
             let mut folder_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.subdirs_counts);
-            Self::serialize_numeric_bitstream(self, &mut folder_count_bitstream_writer,
-                                              &|stat| stat.subfolders.len() as u64,
-                                              &|folder| &folder.subfolders[..])?;
+            Self::serialize_numeric_bitstream(
+                self,
+                &mut folder_count_bitstream_writer,
+                &|stat| stat.subfolders.len() as u64,
+                &|folder| &folder.subfolders[..],
+            )?;
         }
 
         {
             let mut dirname_len_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.dirname_counts);
-            Self::serialize_numeric_bitstream(&packing_info, &mut dirname_len_bitstream_writer, &|stat| {
-                match stat.dir_name.as_ref() {
+            Self::serialize_numeric_bitstream(
+                &packing_info,
+                &mut dirname_len_bitstream_writer,
+                &|stat| match stat.dir_name.as_ref() {
                     Some(name) => name.len() as u64,
                     None => 0,
-                }
-            }, &|folder| &folder.subfolders[..])?;
+                },
+                &|folder| &folder.subfolders[..],
+            )?;
         }
 
         let mut dirnames_buf = Vec::new();
@@ -338,10 +369,10 @@ impl DirStat {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use crate::dirdb::DirStat;
     use crate::box_result::BoxResult;
     use crate::crypto::Key;
+    use crate::dirdb::DirStat;
+    use std::path::Path;
 
     #[test]
     fn serialize_roundtrip() -> BoxResult<()> {
