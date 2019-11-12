@@ -13,7 +13,6 @@ const DATA_READER_MAX_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 pub struct ProgressDataReader {
     data: Bytes,
     pos: usize,
-    silent: bool,
 }
 
 impl ProgressDataReader {
@@ -21,15 +20,6 @@ impl ProgressDataReader {
         ProgressDataReader {
             data: data.into(),
             pos: 0,
-            silent: false,
-        }
-    }
-
-    pub fn new_silent(data: Vec<u8>) -> ProgressDataReader {
-        ProgressDataReader {
-            data: data.into(),
-            pos: 0,
-            silent: true,
         }
     }
 
@@ -47,7 +37,6 @@ impl Clone for ProgressDataReader {
         Self {
             data: self.data.clone(),
             pos: self.pos,
-            silent: self.silent,
         }
     }
 }
@@ -65,10 +54,6 @@ impl Stream for ProgressDataReader {
         let chunk_slice = self.data.slice(self.pos, self.pos + read_size);
         self.pos += read_size;
 
-        if !self.silent {
-            // TODO: Maybe report simplified percentages through the upload progress bar (self.pos * 100 / self.len())
-        }
-
         Poll::Ready(Some(Ok(chunk_slice.into())))
     }
 }
@@ -81,9 +66,6 @@ impl Read for ProgressDataReader {
         buf[..read_size].copy_from_slice(target);
 
         self.pos += read_size;
-        if !self.silent {
-            // TODO: Maybe report simplified percentages through the upload progress bar (self.pos * 100 / self.len())
-        }
         Ok(read_size)
     }
 }

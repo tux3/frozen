@@ -53,8 +53,6 @@ pub async fn restore_one_root(
     b2.progress.replace(diff_progress.clone());
     let b2 = Arc::new(b2);
 
-    // TODO: Factor out the code in backup.rs that fetches/creates DirDBs and the DirDiff, reuse here (with the right target path, ofc)
-
     let target_dirdb = Arc::new(DirDB::new_from_local(&target, &b2.key)?);
     diff_progress.report_success();
 

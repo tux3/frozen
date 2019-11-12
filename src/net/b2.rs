@@ -411,7 +411,7 @@ impl B2 {
     }
 
     pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> BoxResult<RemoteFileVersion> {
-        let data_reader = ProgressDataReader::new_silent(data);
+        let data_reader = ProgressDataReader::new(data);
         let upload_url = self.get_upload_url().await?;
         self.upload_file(&upload_url, filename, data_reader, None).await
     }
