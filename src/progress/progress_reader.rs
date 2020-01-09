@@ -1,6 +1,5 @@
-use bytes::Bytes;
 use futures::{stream::Stream, task::Poll};
-use hyper::Chunk;
+use hyper::body::Bytes;
 use std::cmp;
 use std::error::Error;
 use std::io::{self, Read};
@@ -42,7 +41,7 @@ impl Clone for ProgressDataReader {
 }
 
 impl Stream for ProgressDataReader {
-    type Item = Result<Chunk, Box<dyn Error + Sync + Send + 'static>>;
+    type Item = Result<Bytes, Box<dyn Error + Sync + Send + 'static>>;
 
     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let chunk_size = clamp::clamp(
@@ -51,7 +50,7 @@ impl Stream for ProgressDataReader {
             DATA_READER_MAX_CHUNK_SIZE,
         );
         let read_size = cmp::min(chunk_size, self.len() - self.pos);
-        let chunk_slice = self.data.slice(self.pos, self.pos + read_size);
+        let chunk_slice = self.data.slice(self.pos..self.pos + read_size);
         self.pos += read_size;
 
         Poll::Ready(Some(Ok(chunk_slice.into())))

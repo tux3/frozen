@@ -1,4 +1,4 @@
-use crate::action::{self, scoped_runtime};
+use crate::action;
 use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::paths::path_from_arg;
@@ -7,9 +7,10 @@ use crate::dirdb::{diff::DirDiff, diff::FileDiff, DirDB};
 use crate::net::b2;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
-use crate::signal::SignalHandler;
+use crate::signal::interruptible;
 use clap::ArgMatches;
-use futures::StreamExt;
+use futures::stream::{FuturesUnordered, StreamExt};
+use futures::task::SpawnExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,12 +27,11 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
-    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
     let mut root = root::open_create_root(&b2, &mut roots, &target).await?;
     let arc_root = Arc::new(root.clone());
 
     let backup_fut = backup_one_root(config, args, path, b2, arc_root);
-    let result = sighandler.interruptible(backup_fut).await;
+    let result = interruptible(backup_fut).await;
 
     root.unlock().await?;
     result
@@ -53,24 +53,21 @@ pub async fn backup_one_root(
     b2.progress.replace(diff_progress.clone());
     let b2 = Arc::new(b2);
 
-    // This is scoped to shutdown when we're done running actions on the backup folder
-    let mut action_runtime = scoped_runtime::Builder::new()
-        .name_prefix("backup-")
-        .pool_size(num_cpus::get().max(1))
-        .build()?;
+    // Lets us wait for all backup actions to complete
+    let action_futs = FuturesUnordered::new();
 
     let dirdb_path = "dirdb/".to_string() + &root.path_hash;
     let remote_dirdb_fut = {
         let b2 = b2.clone();
         let dirdb_path = dirdb_path.clone();
-        action_runtime.spawn_with_handle(async move { b2.download_file(&dirdb_path).await })?
+        tokio::spawn(async move { b2.download_file(&dirdb_path).await })
     };
 
     let local_dirdb = Arc::new(DirDB::new_from_local(&path, &b2.key)?);
     diff_progress.report_success();
 
     let remote_dirdb = remote_dirdb_fut
-        .await
+        .await?
         .ok()
         .and_then(|data| DirDB::new_from_packed(&data, &b2.key).ok());
 
@@ -102,7 +99,7 @@ pub async fn backup_one_root(
                     }
                 }
                 num_upload_actions += 1;
-                action_runtime.spawn(action::upload(
+                action_futs.spawn(action::upload(
                     rate_limiter.clone(),
                     upload_progress.clone(),
                     b2.clone(),
@@ -119,7 +116,7 @@ pub async fn backup_one_root(
                     continue;
                 }
                 num_delete_actions += 1;
-                action_runtime.spawn(action::delete(
+                action_futs.spawn(action::delete(
                     rate_limiter.clone(),
                     delete_progress.clone(),
                     b2.clone(),
@@ -139,7 +136,7 @@ pub async fn backup_one_root(
     diff_progress.finish();
 
     let packed_local_dirdb = local_dirdb.to_packed(&b2.key)?;
-    action_runtime.shutdown_on_idle().await;
+    action_futs.for_each(|()| futures::future::ready(())).await;
     upload_progress.finish();
     delete_progress.finish();
     progress.join();

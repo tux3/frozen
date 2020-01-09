@@ -1,12 +1,14 @@
-use crate::action::{self, scoped_runtime};
+use crate::action;
 use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::{paths::path_from_arg, root};
 use crate::net::b2::B2;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
-use crate::signal::SignalHandler;
+use crate::signal::interruptible;
 use clap::ArgMatches;
+use futures::stream::{StreamExt, FuturesUnordered};
+use futures::task::SpawnExt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -21,11 +23,8 @@ pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let mut roots = root::fetch_roots(&b2).await?;
 
     println!("Deleting backup folder {}", path.display());
-    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
     let mut root = root::open_root(&b2, &mut roots, &path).await?;
-    let result = sighandler
-        .interruptible(delete_one_root(config, &mut b2, &path, &root, &mut roots))
-        .await;
+    let result = interruptible(delete_one_root(config, &mut b2, &path, &root, &mut roots)).await;
 
     root.unlock().await?;
     result
@@ -56,22 +55,19 @@ async fn delete_one_root(
     let delete_progress = progress.show_progress_bar(ProgressType::Delete, rfiles.len());
     b2.progress.replace(delete_progress.clone());
 
-    // This is scoped to shutdown when we're done running actions on the folder
-    let action_runtime = scoped_runtime::Builder::new()
-        .name_prefix("delete-")
-        .pool_size(num_cpus::get().max(1))
-        .build()?;
+    // Lets us wait for all backup actions to complete
+    let action_futs = FuturesUnordered::new();
 
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     for rfile in rfiles {
-        action_runtime.spawn(action::delete(
+        action_futs.spawn(action::delete(
             rate_limiter.clone(),
             delete_progress.clone(),
             b2.clone(),
             rfile,
         ))?;
     }
-    action_runtime.shutdown_on_idle().await;
+    action_futs.for_each(|()| futures::future::ready(())).await;
     delete_progress.finish();
     progress.join();
 

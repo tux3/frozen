@@ -3,11 +3,12 @@ use crate::config::Config;
 use crate::crypto::{self, decode_meta, encode_meta, AppKeys};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::progress::{ProgressDataReader, ProgressHandler};
+use bytes::Bytes;
 use data_encoding::BASE64_NOPAD;
-use futures::stream::{Stream, TryStreamExt};
+use futures::stream::Stream;
 use hyper::client::{Client, HttpConnector};
 use hyper::header::{AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE};
-use hyper::{Body, Chunk, Request, StatusCode};
+use hyper::{Body, Request, StatusCode};
 use hyper_tls::HttpsConnector;
 use serde_json::{self, Value};
 use std::path::Path;
@@ -74,18 +75,18 @@ fn make_basic_auth(
 }
 
 fn make_client() -> Client<HttpsConnector<HttpConnector>> {
-    let https = HttpsConnector::new().unwrap();
+    let https = HttpsConnector::new();
     Client::builder()
-        .keep_alive(false) // Caused hangs when used with spawn_with_handle...
+        .pool_max_idle_per_host(0) // Caused hangs when used with spawn_with_handle...
         .build::<_, hyper::Body>(https)
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(&self, req_builder: F) -> BoxResult<(StatusCode, Chunk)>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> BoxResult<(StatusCode, Bytes)>
     where
         F: Fn() -> Request<Body>,
     {
-        let mut attempts = 0;
+        let mut attempts = 0u32;
         loop {
             attempts += 1;
             if attempts > 1 {
@@ -103,7 +104,7 @@ impl B2 {
                 }
             };
             let status = res.status();
-            let body = res.into_body().try_concat().await?;
+            let body = hyper::body::to_bytes(res.into_body()).await?;
 
             // Temporary failure is not an error, just asking for an exponential backoff
             if status.as_u16() == 503 || status.as_u16() == 408 {
@@ -132,7 +133,7 @@ impl B2 {
 
         let res = client.request(req).await?;
         let status = res.status();
-        let body = res.into_body().try_concat().await?;
+        let body = hyper::body::to_bytes(res.into_body()).await?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => {
@@ -435,7 +436,7 @@ impl B2 {
             .request_with_backoff(|| {
                 let data_stream = Box::new(data.clone())
                     as Box<
-                        dyn Stream<Item = Result<Chunk, Box<(dyn std::error::Error + Sync + Send + 'static)>>>
+                        dyn Stream<Item = Result<Bytes, Box<(dyn std::error::Error + Sync + Send + 'static)>>>
                             + Send
                             + Sync
                             + 'static,

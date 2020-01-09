@@ -1,4 +1,4 @@
-use crate::action::{self, scoped_runtime};
+use crate::action;
 use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::{paths::path_from_arg, root};
@@ -9,9 +9,10 @@ use crate::dirdb::{
 use crate::net::b2::B2;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
-use crate::signal::SignalHandler;
+use crate::signal::interruptible;
 use clap::ArgMatches;
-use futures::stream::StreamExt;
+use futures::stream::{StreamExt, FuturesUnordered};
+use futures::task::SpawnExt;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,12 +29,11 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
 
     println!("Downloading backup metadata");
     let mut roots = root::fetch_roots(&b2).await?;
-    let mut sighandler = SignalHandler::new()?; // Start catching signals before we hold the backup lock
     let mut root = root::open_root(&b2, &mut roots, &path).await?;
     let arc_root = Arc::new(root.clone());
 
     let restore_fut = restore_one_root(config, target, b2, arc_root);
-    let result = sighandler.interruptible(restore_fut).await;
+    let result = interruptible(restore_fut).await;
 
     root.unlock().await?;
     result
@@ -68,11 +68,9 @@ pub async fn restore_one_root(
     let target = Arc::new(target);
 
     diff_progress.println("Starting download");
-    // This is scoped to shutdown when we're done running actions on the backup folder
-    let action_runtime = scoped_runtime::Builder::new()
-        .name_prefix("restore-")
-        .pool_size(num_cpus::get().max(1))
-        .build()?;
+    // Lets us wait for all backup actions to complete
+    let action_futs = FuturesUnordered::new();
+
     let mut num_download_actions = 0;
     let rate_limiter = Arc::new(RateLimiter::new(&config));
     while let Some(item) = dir_diff.next().await {
@@ -93,7 +91,7 @@ pub async fn restore_one_root(
                     }
                 }
                 num_download_actions += 1;
-                action_runtime.spawn(action::download(
+                action_futs.spawn(action::download(
                     rate_limiter.clone(),
                     download_progress.clone(),
                     b2.clone(),
@@ -116,7 +114,7 @@ pub async fn restore_one_root(
     diff_progress.report_success();
     diff_progress.finish();
 
-    action_runtime.shutdown_on_idle().await;
+    action_futs.for_each(|()| futures::future::ready(())).await;
     download_progress.finish();
     progress.join();
 
