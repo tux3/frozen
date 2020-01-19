@@ -114,6 +114,7 @@ async fn async_main() -> BoxResult<()> {
 }
 
 fn main() {
+    sodiumoxide::init().expect("Failed to initialize the crypto library");
     let return_code = match async_main() {
         Ok(()) => 0,
         Err(err) => {
