@@ -28,7 +28,7 @@ pub struct RemoteFileVersion {
 }
 
 impl LocalFile {
-    fn full_path(&self, root_path: &Path) -> PathBuf {
+    pub fn full_path(&self, root_path: &Path) -> PathBuf {
         root_path.join(&self.rel_path)
     }
 
@@ -42,10 +42,6 @@ impl LocalFile {
         Ok(Vec::from(
             fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes(),
         ))
-    }
-
-    pub fn read_all_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
-        Ok(fs::read(self.full_path(root_path))?)
     }
 }
 

@@ -14,6 +14,7 @@ mod net;
 mod progress;
 mod prompt;
 mod signal;
+mod stream;
 
 #[cfg(test)]
 mod test_helpers;

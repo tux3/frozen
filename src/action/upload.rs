@@ -2,8 +2,10 @@ use crate::crypto;
 use crate::data::file::LocalFile;
 use crate::net::b2::B2;
 use crate::net::rate_limiter::RateLimiter;
-use crate::progress::{ProgressDataReader, ProgressHandler};
+use crate::progress::ProgressHandler;
+use crate::stream::{CompressionStream, EncryptionStream};
 use std::borrow::Borrow;
+use std::io::Cursor;
 use std::path::PathBuf;
 
 pub async fn upload(
@@ -15,7 +17,7 @@ pub async fn upload(
     file: LocalFile,
 ) {
     let root_path = root_path.borrow();
-    let filename = &file.rel_path;
+    let rel_path = &file.rel_path;
     let b2 = b2.borrow();
 
     let mut permit = rate_limiter.borrow().borrow_upload_permit().await;
@@ -29,7 +31,7 @@ pub async fn upload(
             Err(err) => {
                 progress.report_error(&format!(
                     "Failed to start upload for file \"{}\": {}",
-                    filename.display(),
+                    rel_path.display(),
                     err
                 ));
                 return;
@@ -40,44 +42,37 @@ pub async fn upload(
     let upload_url = permit.as_ref().unwrap();
 
     let is_symlink = file.is_symlink_at(root_path).unwrap_or(false);
-    let mut contents = {
-        let maybe_contents = if is_symlink {
-            file.readlink_at(root_path)
-        } else {
-            file.read_all_at(root_path)
+    let compressed_stream = if is_symlink {
+        let link_data = file.readlink_at(root_path).ok();
+        match link_data {
+            Some(data) => Some(CompressionStream::new(Cursor::new(data), compression_level).await),
+            None => None,
         }
-        .map_err(|_| format!("Failed to read file: {}", filename.display()));
-
-        match maybe_contents {
-            Ok(contents) => contents,
-            Err(err) => {
-                progress.report_error(err);
-                return;
-            }
+    } else {
+        let path = file.full_path(root_path);
+        let std_file = std::fs::File::open(path).ok();
+        match std_file {
+            Some(file) => Some(CompressionStream::new(file, compression_level).await),
+            None => None,
+        }
+    };
+    let compressed_stream = match compressed_stream {
+        Some(c) => Box::new(c),
+        None => {
+            progress.report_error(format!("Failed to read file: {}", rel_path.display()));
+            return;
         }
     };
 
-    let compressed = zstd::block::compress(contents.as_slice(), compression_level);
-    contents.clear();
-    contents.shrink_to_fit();
-    if compressed.is_err() {
-        progress.report_error(&format!("Failed to compress file: {}", filename.display()));
-        return;
-    }
-    let mut compressed = compressed.unwrap();
-
-    let encrypted = crypto::encrypt(&compressed, &b2.key);
-    compressed.clear();
-    compressed.shrink_to_fit();
+    let encrypted_stream = EncryptionStream::new(compressed_stream, &b2.key);
 
     let filehash = &file.full_path_hash;
-    let progress_reader = ProgressDataReader::new(encrypted);
-    let enc_meta = crypto::encode_meta(&b2.key, &filename, file.last_modified, file.mode, is_symlink);
+    let enc_meta = crypto::encode_meta(&b2.key, &rel_path, file.last_modified, file.mode, is_symlink);
 
     let err = b2
-        .upload_file(upload_url, filehash, progress_reader, Some(enc_meta))
+        .upload_file_stream(upload_url, filehash, encrypted_stream, Some(enc_meta))
         .await
-        .map_err(|err| format!("Failed to upload file \"{}\": {}", filename.display(), err));
+        .map_err(|err| format!("Failed to upload file \"{}\": {}", rel_path.display(), err));
     if let Err(err) = err {
         progress.report_error(&err);
         permit.take(); // The upload_url might be invalid now, let's get a new one

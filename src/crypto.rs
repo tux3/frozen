@@ -4,12 +4,14 @@ use blake2::VarBlake2b;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
 use digest::{Digest, Input, VariableOutput};
 use sha1::Sha1;
+use sodiumoxide::crypto::secretstream::{Header, Push, Stream as SecretStream};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
 pub use sodiumoxide::crypto::secretbox::Key;
+pub use sodiumoxide::crypto::secretstream::Key as SecretStreamKey;
 
 const DIRNAME_PATH_HASH_LEN: usize = 8;
 const FILENAME_PATH_HASH_LEN: usize = 12;
@@ -37,6 +39,11 @@ pub fn derive_key(pwd: &str, salt: &str) -> Key {
         .unwrap();
     }
     key
+}
+
+pub fn create_secretstream(&Key(ref key): &Key) -> (SecretStream<Push>, Header) {
+    let secretstream_key = SecretStreamKey(key.to_owned());
+    SecretStream::init_push(&secretstream_key).unwrap()
 }
 
 pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {

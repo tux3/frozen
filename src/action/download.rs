@@ -71,7 +71,7 @@ async fn save_file(file: &RemoteFile, contents: Vec<u8>, target: &Path, progress
         ));
         return Err(());
     }
-    fs::remove_file(&save_path).ok();
+    let _ = fs::remove_file(&save_path);
     if file.is_symlink {
         let link_target = String::from_utf8(contents).unwrap();
         if symlink(link_target, save_path).is_err() {
