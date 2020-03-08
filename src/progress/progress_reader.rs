@@ -53,7 +53,7 @@ impl Stream for ProgressDataReader {
         let chunk_slice = self.data.slice(self.pos..self.pos + read_size);
         self.pos += read_size;
 
-        Poll::Ready(Some(Ok(chunk_slice.into())))
+        Poll::Ready(Some(Ok(chunk_slice)))
     }
 }
 

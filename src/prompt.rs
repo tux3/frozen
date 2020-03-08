@@ -1,4 +1,3 @@
-use rpassword;
 use std::io::{stdin, stdout, Write};
 
 fn prompt_readline() -> String {

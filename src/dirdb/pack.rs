@@ -64,7 +64,7 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Box
     } else if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
         None
     } else {
-        stat.dir_name.as_ref().map(|v| v.as_slice())
+        stat.dir_name.as_deref()
     };
 
     Ok(info)

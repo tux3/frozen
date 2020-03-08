@@ -2,7 +2,6 @@ use crate::box_result::BoxResult;
 use crate::crypto::{decrypt, derive_key, encrypt, AppKeys};
 use crate::prompt::{prompt, prompt_password, prompt_yes_no};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::env;
 use std::error::Error;
 use std::fs::File;

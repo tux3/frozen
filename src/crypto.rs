@@ -1,10 +1,8 @@
 use crate::box_result::BoxResult;
-use base64;
 use bincode::{deserialize, serialize};
 use blake2::VarBlake2b;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
 use digest::{Digest, Input, VariableOutput};
-use libsodium_sys;
 use sha1::Sha1;
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
