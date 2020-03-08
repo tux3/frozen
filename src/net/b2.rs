@@ -220,8 +220,8 @@ impl B2 {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_names";
 
         let delimiter = match depth {
-            FileListDepth::Shallow => "null",
-            FileListDepth::Deep => "\"/\"",
+            FileListDepth::Shallow => r#""/""#,
+            FileListDepth::Deep => "null",
         };
         let body_base = format!(
             "\"bucketId\":\"{}\",\
