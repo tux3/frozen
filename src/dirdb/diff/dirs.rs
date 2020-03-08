@@ -20,10 +20,11 @@ struct DiffTree {
 fn optimized_diff_tree(local: ArcRef<DirDB, DirStat>, remote: &DirStat) -> Option<DiffTree> {
     let mut prefix_path_hash = "/".to_owned();
 
-    // If the remote DB is empty/invalid, we need to deep-diff everything
-    if remote.content_hash == [0u8; 8] {
-        debug_assert!(remote.subfolders.is_empty());
-        debug_assert_eq!(remote.total_files_count, 0);
+    // When the remote DB is empty/missing, or pessimized and with no folders, deep-diff everything
+    // Normally we deep-diff when a remote folder is missing locally, but this is the root folder,
+    // and, a root with no subdirs is just as fast to deep-diff as shallow-diff, so we don't lose
+    // any performance by sharing the same encoding for "no subdirs at all" and "no dirdb at all"
+    if remote.content_hash == [0u8; 8] && remote.subfolders.is_empty() {
         return Some(DiffTree {
             children: vec![],
             local: Some(local),
@@ -153,20 +154,6 @@ impl DiffTree {
         }
     }
 
-    fn extract_local_only_folders(self, local_only_children: &mut Vec<DiffTree>) {
-        if self.local_only {
-            local_only_children.push(self)
-        } else {
-            for child in self.children {
-                if child.local_only {
-                    local_only_children.push(child);
-                } else {
-                    child.extract_local_only_folders(local_only_children);
-                }
-            }
-        }
-    }
-
     /// Optimizes how many requests are needed to diff this tree, and returns the number
     fn optimize_with_costs(&mut self) -> u64 {
         // We don't make *any* requests for local-only folders (but they're still part of the tree)
@@ -190,10 +177,7 @@ impl DiffTree {
 
         if merged_diff_cost < separate_diff_cost {
             self.deep_diff = true;
-            let old_children = std::mem::replace(&mut self.children, Vec::new());
-            old_children
-                .into_iter()
-                .for_each(|c| c.extract_local_only_folders(&mut self.children));
+            self.children.clear();
             merged_diff_cost
         } else {
             separate_diff_cost
@@ -206,14 +190,7 @@ impl DiffTree {
 
     pub fn into_diff_streams(self, root: Arc<BackupRoot>, b2: Arc<B2>, diff_streams: &mut SelectAll<FileDiffStream>) {
         let stream = match (self.local, self.local_only) {
-            (local @ Some(_), false) => FileDiffStream::new(
-                root.clone(),
-                b2.clone(),
-                self.prefix_path_hash.clone(),
-                local,
-                self.deep_diff,
-            ),
-            (local @ None, false) => FileDiffStream::new(
+            (local, false) => FileDiffStream::new(
                 root.clone(),
                 b2.clone(),
                 self.prefix_path_hash.clone(),
@@ -459,7 +436,7 @@ mod test {
 
     #[test]
     fn merge_ignoring_local_only_folders() {
-        // The local-only folders should not prevent merge, and still be preserved in the tree
+        // The local-only folders should not prevent merge, and should go away since we deep-diff
         let tree = DiffTree::new_without_subdirs(0, 2000);
         let mut tree = tree.wrap_in_new_parent(0);
         let mut local_only = DiffTree::new_without_subdirs(0, 0);
@@ -478,9 +455,8 @@ mod test {
         let expected_cost = DiffTree::files_count_to_request_cost(root.total_files_count);
 
         assert_eq!(cost, expected_cost);
-        assert_eq!(root.children.len(), 1);
-        assert!(root.children[0].local_only);
         assert!(root.deep_diff);
+        assert!(root.children.is_empty());
     }
 
     #[test]
