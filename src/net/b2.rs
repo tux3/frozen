@@ -83,7 +83,16 @@ fn make_client() -> Client<HttpsConnector<HttpConnector>> {
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(&self, mut req_builder: F) -> BoxResult<(StatusCode, Bytes)>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> BoxResult<(StatusCode, Bytes)>
+    where
+        F: FnMut() -> Request<Body>,
+    {
+        let (status, body) = self.request_stream_with_backoff(req_builder).await?;
+        let body_bytes = hyper::body::to_bytes(body).await?;
+        Ok((status, body_bytes))
+    }
+
+    async fn request_stream_with_backoff<F>(&self, mut req_builder: F) -> BoxResult<(StatusCode, Body)>
     where
         F: FnMut() -> Request<Body>,
     {
@@ -105,7 +114,6 @@ impl B2 {
                 }
             };
             let status = res.status();
-            let body = hyper::body::to_bytes(res.into_body()).await?;
 
             // Temporary failure is not an error, just asking for an exponential backoff
             if status.as_u16() == 503 || status.as_u16() == 408 {
@@ -117,7 +125,7 @@ impl B2 {
                 continue;
             }
 
-            return Ok((status, body));
+            return Ok((status, res.into_body()));
         }
     }
 
@@ -657,10 +665,15 @@ impl B2 {
         Ok(reply_json)
     }
 
-    pub async fn download_file(&self, filename: &str) -> BoxResult<Vec<u8>> {
+    pub async fn download_file(&self, filename: &str) -> BoxResult<Bytes> {
+        let body = self.download_file_stream(filename).await?;
+        Ok(hyper::body::to_bytes(body).await?)
+    }
+
+    pub async fn download_file_stream(&self, filename: &str) -> BoxResult<Body> {
         let filename = filename.to_owned();
         let (status, body) = self
-            .request_with_backoff(|| {
+            .request_stream_with_backoff(|| {
                 Request::get(self.bucket_download_url.clone() + &filename)
                     .header(AUTHORIZATION, self.auth_token.clone())
                     .header(CONNECTION, "keep-alive")
@@ -677,7 +690,7 @@ impl B2 {
             )));
         }
 
-        Ok(body.to_vec())
+        Ok(body)
     }
 
     pub async fn hide_file(&self, file_path_hash: &str) -> BoxResult<()> {

@@ -1,5 +1,6 @@
 use crate::box_result::BoxResult;
 use crate::crypto::{create_secretstream, Key};
+use crate::stream::next_stream_bytes;
 use bytes::Bytes;
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt};
@@ -35,7 +36,7 @@ impl EncryptionStream {
         mut sender: mpsc::Sender<BoxResult<Bytes>>,
     ) {
         // We concat the header with the first encrypted chunk, it'd be too small just by itself
-        if let Some(input) = Self::get_next(&mut input_stream, &mut sender).await {
+        if let Some(input) = next_stream_bytes(&mut input_stream, &mut sender).await {
             let Header(header_data) = secret_stream_header;
             let mut first_chunk = header_data.to_vec();
 
@@ -47,25 +48,11 @@ impl EncryptionStream {
             }
         }
 
-        while let Some(input) = Self::get_next(&mut input_stream, &mut sender).await {
+        while let Some(input) = next_stream_bytes(&mut input_stream, &mut sender).await {
             let encrypted = block_in_place(|| secret_stream.push(&input, None, Message).unwrap());
             if sender.send(Ok(Bytes::from(encrypted))).await.is_err() {
                 return;
             }
-        }
-    }
-
-    async fn get_next(
-        input_stream: &mut Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
-        sender: &mut mpsc::Sender<BoxResult<Bytes>>,
-    ) -> Option<Bytes> {
-        match input_stream.next().await {
-            Some(Err(err)) => {
-                let _ = sender.send(Err(err)).await;
-                None
-            }
-            Some(Ok(input)) => Some(input),
-            None => None,
         }
     }
 }

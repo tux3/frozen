@@ -4,7 +4,7 @@ use blake2::VarBlake2b;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
 use digest::{Digest, Input, VariableOutput};
 use sha1::Sha1;
-use sodiumoxide::crypto::secretstream::{Header, Push, Stream as SecretStream};
+use sodiumoxide::crypto::secretstream::{Header, Pull, Push, Stream as SecretStream};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
 use sodiumoxide::randombytes;
 use std::path::{Path, PathBuf};
@@ -44,6 +44,12 @@ pub fn derive_key(pwd: &str, salt: &str) -> Key {
 pub fn create_secretstream(&Key(ref key): &Key) -> (SecretStream<Push>, Header) {
     let secretstream_key = SecretStreamKey(key.to_owned());
     SecretStream::init_push(&secretstream_key).unwrap()
+}
+
+pub fn open_secretstream(header: &[u8], &Key(ref key): &Key) -> SecretStream<Pull> {
+    let secretstream_key = SecretStreamKey(key.to_owned());
+    let header = Header::from_slice(header).expect("Invalid secretstream header size");
+    SecretStream::init_pull(&header, &secretstream_key).unwrap()
 }
 
 pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {

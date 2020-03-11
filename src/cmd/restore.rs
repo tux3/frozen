@@ -11,7 +11,7 @@ use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::interruptible;
 use clap::ArgMatches;
-use futures::stream::{StreamExt, FuturesUnordered};
+use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::fs;
 use std::path::PathBuf;
@@ -82,10 +82,6 @@ pub async fn restore_one_root(
                 remote: Some(rfile),
             } => {
                 if let Some(lfile) = local {
-                    diff_progress.println(format!(
-                        "LOCAL: {}, REMOTE: {}",
-                        &lfile.full_path_hash, &rfile.full_path_hash
-                    ));
                     if lfile.last_modified >= rfile.last_modified {
                         continue;
                     }
