@@ -1,6 +1,6 @@
 [package]
 name = "frozen"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["tux3 <barrdetwix@gmail.com>"]
 edition = "2018"
 publish = false
