@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 /// Size of a byte stream's chunks (must be above B2's 5MB minimum part size)
 pub const STREAMS_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 /// Max pending chunks that a stream will buffer
-pub const CHUNK_BUFFER_COUNT: usize = 4;
+pub const CHUNK_BUFFER_COUNT: usize = 1;
 
 /// This returns the next buffer from the stream, or None. Reports errors to the sender.
 async fn next_stream_bytes<T>(
