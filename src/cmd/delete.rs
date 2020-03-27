@@ -2,12 +2,12 @@ use crate::action;
 use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::{paths::path_from_arg, root};
-use crate::net::b2::B2;
+use crate::net::b2::{FileListDepth, B2};
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::interruptible;
 use clap::ArgMatches;
-use futures::stream::{StreamExt, FuturesUnordered};
+use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -39,7 +39,16 @@ async fn delete_one_root(
 ) -> BoxResult<()> {
     // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
     let dirdb_path = "dirdb/".to_string() + &root.path_hash;
-    b2.hide_file(&dirdb_path).await?;
+    if let err @ Err(_) = b2.hide_file(&dirdb_path).await {
+        // If the dirdb doesn't actually exist (or is already hidden), we can continue safely
+        if !b2
+            .list_remote_files(&dirdb_path, FileListDepth::Shallow)
+            .await?
+            .is_empty()
+        {
+            return err;
+        }
+    }
 
     println!("Listing remote files");
     let rfiles = root.list_remote_files(b2).await?;
