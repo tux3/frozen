@@ -48,16 +48,16 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Box
     // just the subfolders, and that means we need dirnames. Similarly if we have no direct files.
     // We also need all our parents to store dirname in this case, so this flag bubbles up and down
     let no_direct_files = direct_files_count == 0;
-    let mut need_folder_full_path = parent_has_no_files || no_direct_files;
+    info.need_folder_full_path = parent_has_no_files || no_direct_files;
     for subfolder in stat.subfolders.iter() {
         let sub_pack_info = dirnames_packing_info_inner(subfolder, no_direct_files)?;
-        need_folder_full_path |= sub_pack_info.need_folder_full_path;
+        info.need_folder_full_path |= sub_pack_info.need_folder_full_path;
         info.subfolders.push(sub_pack_info);
     }
 
     // We store the name instead of the hash if it's short enough, or if we genuinely need it
     // We keep names up to 2x the hash size since they typically compress very well
-    info.dir_name = if need_folder_full_path {
+    info.dir_name = if info.need_folder_full_path {
         Some(
             stat.dir_name
                 .as_ref()
