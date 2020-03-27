@@ -96,6 +96,7 @@ impl B2 {
     where
         F: FnMut() -> Request<Body>,
     {
+        let mut hard_fails = 0u32;
         let mut attempts = 0u32;
         loop {
             attempts += 1;
@@ -120,6 +121,17 @@ impl B2 {
                 warning(
                     &self.progress,
                     status.canonical_reason().unwrap_or("Temporary request failure"),
+                )
+                .await;
+                continue;
+            }
+
+            // Treat internal server errors as temporary failures, for a few attempts
+            if status.as_u16() == 500 && hard_fails < 5 {
+                hard_fails += 1;
+                warning(
+                    &self.progress,
+                    status.canonical_reason().unwrap_or("Internal server error"),
                 )
                 .await;
                 continue;
