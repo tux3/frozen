@@ -75,12 +75,16 @@ fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> Box
 
 /// Collects info to remove subdir names that are too long or unnecessary
 fn dirnames_packing_info(stat: &DirStat) -> BoxResult<PackingInfo> {
-    let mut info = dirnames_packing_info_inner(stat, false);
-    if let Ok(info) = info.as_mut() {
-        // The root folder should never serialize its name, it's only the contents we care about.
-        info.dir_name = None;
+    // The root folder should never serialize its name, it's only the contents we care about.
+    let mut info = PackingInfo {
+        need_folder_full_path: false,
+        dir_name: None,
+        ..Default::default()
     };
-    info
+    for subfolder in stat.subfolders.iter() {
+        info.subfolders.push(dirnames_packing_info_inner(subfolder, false)?);
+    }
+    Ok(info)
 }
 
 fn best_buckets_encoding(buckets: &[usize]) -> Encoding {
