@@ -130,8 +130,8 @@ pub async fn backup_one_root(
         }
     }
 
-    let upload_progress = progress.show_progress_bar(ProgressType::Upload, num_upload_actions);
     let delete_progress = progress.show_progress_bar(ProgressType::Delete, num_delete_actions);
+    let upload_progress = progress.show_progress_bar(ProgressType::Upload, num_upload_actions);
     diff_progress.report_success();
     diff_progress.finish();
 
