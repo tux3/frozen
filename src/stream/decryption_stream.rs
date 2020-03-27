@@ -39,7 +39,17 @@ impl DecryptionStream {
         };
 
         while let Some(input) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
-            let (decrypted, tag) = block_in_place(|| secret_stream.pull(&input, None).unwrap());
+            let (decrypted, tag) = match block_in_place(|| secret_stream.pull(&input, None)) {
+                Ok(result) => result,
+                Err(()) => {
+                    let _ = sender
+                        .send(Err(From::from(
+                            "Decryption failed: Unknown error in secret_stream.pull()",
+                        )))
+                        .await;
+                    return;
+                }
+            };
             assert_eq!(tag, Tag::Message);
             if sender.send(Ok(Bytes::from(decrypted))).await.is_err() {
                 return;
