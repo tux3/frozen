@@ -72,7 +72,7 @@ pub async fn restore_one_root(
     let action_futs = FuturesUnordered::new();
 
     let mut num_download_actions = 0;
-    let rate_limiter = Arc::new(RateLimiter::new(&config));
+    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
     while let Some(item) = dir_diff.next().await {
         let item = item?;
 
@@ -90,7 +90,6 @@ pub async fn restore_one_root(
                 action_futs.spawn(action::download(
                     rate_limiter.clone(),
                     download_progress.clone(),
-                    b2.clone(),
                     target.clone(),
                     rfile,
                 ))?;

@@ -83,7 +83,7 @@ pub async fn backup_one_root(
     diff_progress.println("Starting backup");
     let mut num_upload_actions = 0;
     let mut num_delete_actions = 0;
-    let rate_limiter = Arc::new(RateLimiter::new(&config));
+    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
     let keep_existing = args.is_present("keep-existing");
     while let Some(item) = dir_diff.next().await {
         let item = item?;
@@ -102,7 +102,6 @@ pub async fn backup_one_root(
                 action_futs.spawn(action::upload(
                     rate_limiter.clone(),
                     upload_progress.clone(),
-                    b2.clone(),
                     config.compression_level,
                     path.clone(),
                     lfile,
@@ -116,12 +115,7 @@ pub async fn backup_one_root(
                     continue;
                 }
                 num_delete_actions += 1;
-                action_futs.spawn(action::delete(
-                    rate_limiter.clone(),
-                    delete_progress.clone(),
-                    b2.clone(),
-                    rfile,
-                ))?;
+                action_futs.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), rfile))?;
             }
             FileDiff {
                 local: None,

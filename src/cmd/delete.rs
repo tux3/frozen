@@ -67,14 +67,9 @@ async fn delete_one_root(
     // Lets us wait for all backup actions to complete
     let action_futs = FuturesUnordered::new();
 
-    let rate_limiter = Arc::new(RateLimiter::new(&config));
+    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
     for rfile in rfiles {
-        action_futs.spawn(action::delete(
-            rate_limiter.clone(),
-            delete_progress.clone(),
-            b2.clone(),
-            rfile,
-        ))?;
+        action_futs.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), rfile))?;
     }
     action_futs.for_each(|()| futures::future::ready(())).await;
     delete_progress.finish();

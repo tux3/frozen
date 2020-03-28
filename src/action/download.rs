@@ -1,5 +1,4 @@
 use crate::data::file::RemoteFile;
-use crate::net::b2::B2;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
 use crate::stream::{DecompressionStream, DecryptionStream};
@@ -12,13 +11,13 @@ use std::path::{Path, PathBuf};
 pub async fn download(
     rate_limiter: impl Borrow<RateLimiter>,
     progress: ProgressHandler,
-    b2: impl Borrow<B2>,
     target_path: impl Borrow<PathBuf>,
     file: RemoteFile,
 ) {
-    let b2 = b2.borrow();
+    let rate_limiter = rate_limiter.borrow();
+    let mut _permit_guard = rate_limiter.borrow_download_permit().await;
+    let b2 = rate_limiter.b2_client();
 
-    let mut _permit_guard = rate_limiter.borrow().borrow_download_permit().await;
     if progress.verbose() {
         progress.println(format!("Downloading {}", file.rel_path.display()));
     }

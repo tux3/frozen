@@ -1,6 +1,5 @@
 use crate::crypto;
 use crate::data::file::LocalFile;
-use crate::net::b2::B2;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
 use crate::stream::{CompressionStream, EncryptionStream};
@@ -11,16 +10,17 @@ use std::path::PathBuf;
 pub async fn upload(
     rate_limiter: impl Borrow<RateLimiter>,
     progress: ProgressHandler,
-    b2: impl Borrow<B2>,
     compression_level: i32,
     root_path: impl Borrow<PathBuf>,
     file: LocalFile,
 ) {
     let root_path = root_path.borrow();
     let rel_path = &file.rel_path;
-    let b2 = b2.borrow();
 
-    let mut permit = rate_limiter.borrow().borrow_upload_permit().await;
+    let rate_limiter = rate_limiter.borrow();
+    let mut permit = rate_limiter.borrow_upload_permit().await;
+    let b2 = rate_limiter.b2_client();
+
     if progress.verbose() {
         progress.println(format!("Uploading {}", file.rel_path.display()));
     }
