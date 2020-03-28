@@ -8,9 +8,9 @@ use std::fs::File;
 use std::io::prelude::*;
 
 static CONFIG_FILE_RELPATH: &str = ".config/frozen.json";
-pub static UPLOAD_THREADS_DEFAULT: u16 = 6;
+pub static UPLOAD_THREADS_DEFAULT: u16 = 16;
 pub static DOWNLOAD_THREADS_DEFAULT: u16 = 8;
-pub static DELETE_THREADS_DEFAULT: u16 = 16;
+pub static DELETE_THREADS_DEFAULT: u16 = 32;
 pub static COMPRESSION_LEVEL_DEFAULT: i32 = 18;
 
 #[derive(Clone)]
