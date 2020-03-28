@@ -52,6 +52,7 @@ async fn next_stream_bytes_chunked(
     if next_buf.len() >= desired {
         let new_next = next_buf[desired..].to_vec();
         next_buf.truncate(desired);
+        next_buf.shrink_to_fit();
         return Some(std::mem::replace(next_buf, new_next).into());
     }
 

@@ -57,9 +57,12 @@ impl CompressionStream {
                         sender.send(chunks_count).unwrap()
                     }
                 }
-                if sender.send(Ok(Bytes::copy_from_slice(&buf[..pos]))).await.is_err() {
+                let mut bytes = buf.into_vec();
+                bytes.truncate(pos);
+                if sender.send(Ok(bytes.into())).await.is_err() {
                     break;
                 }
+                buf = vec![0u8; STREAMS_CHUNK_SIZE].into_boxed_slice();
                 pos = 0;
                 if at_end {
                     break;

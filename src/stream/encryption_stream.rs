@@ -39,11 +39,11 @@ impl EncryptionStream {
         let mut input = input_stream.fuse();
 
         // We concat the header with the first encrypted chunk, it'd be too small just by itself
-        if let Some(input) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
+        if let Some(data) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
             let Header(header_data) = secret_stream_header;
             let mut first_chunk = header_data.to_vec();
 
-            let encrypted_chunk_size = input.len() + ABYTES;
+            let encrypted_chunk_size = data.len() + ABYTES;
             let size_buf = (encrypted_chunk_size as u64).to_le_bytes();
             debug_assert_eq!(size_buf.len(), std::mem::size_of::<u64>());
             let encrypted_encrypted_chunk_size =
@@ -51,8 +51,9 @@ impl EncryptionStream {
             debug_assert_eq!(encrypted_encrypted_chunk_size.len(), size_buf.len() + ABYTES);
             first_chunk.append(encrypted_encrypted_chunk_size);
 
-            let encrypted = &mut block_in_place(|| secret_stream.push(&input, None, Tag::Message).unwrap());
+            let encrypted = &mut block_in_place(|| secret_stream.push(&data, None, Tag::Message).unwrap());
             debug_assert_eq!(encrypted.len(), encrypted_chunk_size);
+            drop(data);
             first_chunk.append(encrypted);
 
             if sender.send(Ok(Bytes::from(first_chunk))).await.is_err() {
@@ -66,6 +67,7 @@ impl EncryptionStream {
         while let Some(input) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
             let encrypted = block_in_place(|| secret_stream.push(&input, None, Tag::Message).unwrap());
             debug_assert_eq!(encrypted.len(), input.len() + ABYTES);
+            drop(input);
             if sender.send(Ok(Bytes::from(encrypted))).await.is_err() {
                 return;
             }
