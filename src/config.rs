@@ -87,9 +87,7 @@ impl Config {
     }
 
     fn new_from_file() -> Result<Self, Box<dyn Error>> {
-        let mut file: File = File::open(Self::get_file_path())?;
-        let contents = &mut String::new();
-        file.read_to_string(contents)?;
+        let contents = std::fs::read_to_string(Self::get_file_path())?;
         let config_file: ConfigFile = serde_json::from_str(&contents)?;
 
         Ok(Config {
