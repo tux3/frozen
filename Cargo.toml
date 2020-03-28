@@ -32,6 +32,7 @@ hashbrown = "0.6"
 futures-intrusive = "0.2"
 crossbeam = "0.7"
 indicatif = "0.13"
+tempfile = "3"
 
 [profile.release]
 lto = true
