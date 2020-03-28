@@ -35,7 +35,9 @@ impl DecompressionStream {
             block_in_place(|| {
                 decoder.write_all(&input).unwrap();
             });
-            sender.send(Ok(())).await.unwrap();
+            if sender.send(Ok(())).await.is_err() {
+                return;
+            }
         }
 
         decoder.flush().unwrap();

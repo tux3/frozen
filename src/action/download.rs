@@ -4,8 +4,8 @@ use crate::progress::ProgressHandler;
 use crate::stream::{DecompressionStream, DecryptionStream};
 use futures::StreamExt;
 use std::borrow::Borrow;
-use std::fs::{self, OpenOptions};
-use std::os::unix::fs::{symlink, OpenOptionsExt};
+use std::fs::{self, Permissions};
+use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 pub async fn download(
@@ -51,7 +51,8 @@ async fn save_file(
     progress: &ProgressHandler,
 ) -> Result<(), ()> {
     let save_path = target.join(&file.rel_path);
-    if fs::create_dir_all(Path::new(&save_path).parent().unwrap()).is_err() {
+    let save_dir = Path::new(&save_path).parent().unwrap();
+    if fs::create_dir_all(save_dir).is_err() {
         progress.report_error(&format!(
             "Failed to create path to file \"{}\"",
             file.rel_path.display()
@@ -88,12 +89,35 @@ async fn save_file(
             return Err(());
         }
     } else {
-        let mut options = OpenOptions::new();
-        options.mode(file.mode);
-        let fd = match options.write(true).create(true).truncate(true).open(save_path) {
+        let tempfile = match tempfile::NamedTempFile::new_in(save_dir) {
+            Err(err) => {
+                progress.report_error(&format!(
+                    "Failed to create temp file for \"{}\": {}",
+                    file.rel_path.display(),
+                    err
+                ));
+                return Err(());
+            }
+            Ok(tempfile) => tempfile,
+        };
+        if tempfile
+            .as_file()
+            .set_permissions(Permissions::from_mode(file.mode))
+            .is_err()
+        {
+            progress.report_error(&format!(
+                "Failed to set permissions of temp file for \"{}\"",
+                file.rel_path.display()
+            ));
+            return Err(());
+        }
+        let fd = match tempfile.reopen() {
             Ok(x) => x,
             Err(_) => {
-                progress.report_error(&format!("Failed to open file \"{}\"", file.rel_path.display()));
+                progress.report_error(&format!(
+                    "Failed to reopen temp file for \"{}\"",
+                    file.rel_path.display()
+                ));
                 return Err(());
             }
         };
@@ -105,7 +129,19 @@ async fn save_file(
                     file.rel_path.display(),
                     err
                 ));
+                drop(decompressed_stream);
+                let _ = tempfile.close();
+                return Err(());
             }
+        }
+        if let Err(err) = tempfile.persist(save_path) {
+            progress.report_error(&format!(
+                "Failed to save \"{}\": {}",
+                file.rel_path.display(),
+                err.error
+            ));
+            drop(decompressed_stream);
+            return Err(());
         }
     }
     Ok(())
