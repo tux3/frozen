@@ -68,7 +68,7 @@ impl CompressionStream {
         }
 
         if let Some(sender) = lower_bound_send.take() {
-            sender.send(chunks_count).unwrap()
+            sender.send(chunks_count).unwrap();
         }
     }
 }

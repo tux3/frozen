@@ -1,11 +1,11 @@
 use crate::box_result::BoxResult;
 use crate::crypto::{create_secretstream, Key};
-use crate::stream::next_stream_bytes;
+use crate::stream::{next_stream_bytes_chunked, STREAMS_CHUNK_SIZE};
 use bytes::Bytes;
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt};
-use sodiumoxide::crypto::secretstream::Tag::Message;
 use sodiumoxide::crypto::secretstream::{Header, Push, Stream as SecretStream};
+use sodiumoxide::crypto::secretstream::{Tag, ABYTES};
 use std::pin::Pin;
 use tokio::sync::mpsc;
 use tokio::task::block_in_place;
@@ -30,26 +30,42 @@ impl EncryptionStream {
     }
 
     async fn process(
-        mut input_stream: Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
+        input_stream: Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
         mut secret_stream: SecretStream<Push>,
         secret_stream_header: Header,
         mut sender: mpsc::Sender<BoxResult<Bytes>>,
     ) {
+        let mut buf = Vec::new();
+        let mut input = input_stream.fuse();
+
         // We concat the header with the first encrypted chunk, it'd be too small just by itself
-        if let Some(input) = next_stream_bytes(&mut input_stream, &mut sender).await {
+        if let Some(input) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
             let Header(header_data) = secret_stream_header;
             let mut first_chunk = header_data.to_vec();
 
-            let encrypted = block_in_place(|| secret_stream.push(&input, None, Message).unwrap());
+            let encrypted_chunk_size = input.len() + ABYTES;
+            let size_buf = (encrypted_chunk_size as u64).to_le_bytes();
+            debug_assert_eq!(size_buf.len(), std::mem::size_of::<u64>());
+            let encrypted_encrypted_chunk_size =
+                &mut block_in_place(|| secret_stream.push(&size_buf, None, Tag::Push).unwrap());
+            debug_assert_eq!(encrypted_encrypted_chunk_size.len(), size_buf.len() + ABYTES);
+            first_chunk.append(encrypted_encrypted_chunk_size);
 
-            first_chunk.extend_from_slice(&encrypted);
+            let encrypted = &mut block_in_place(|| secret_stream.push(&input, None, Tag::Message).unwrap());
+            debug_assert_eq!(encrypted.len(), encrypted_chunk_size);
+            first_chunk.append(encrypted);
+
             if sender.send(Ok(Bytes::from(first_chunk))).await.is_err() {
                 return;
             }
+        } else {
+            let _ = sender.send(Err(From::from("No input data, failed to encrypt!"))).await;
+            return;
         }
 
-        while let Some(input) = next_stream_bytes(&mut input_stream, &mut sender).await {
-            let encrypted = block_in_place(|| secret_stream.push(&input, None, Message).unwrap());
+        while let Some(input) = next_stream_bytes_chunked(&mut input, &mut buf, STREAMS_CHUNK_SIZE, &mut sender).await {
+            let encrypted = block_in_place(|| secret_stream.push(&input, None, Tag::Message).unwrap());
+            debug_assert_eq!(encrypted.len(), input.len() + ABYTES);
             if sender.send(Ok(Bytes::from(encrypted))).await.is_err() {
                 return;
             }

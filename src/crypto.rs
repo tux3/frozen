@@ -138,3 +138,48 @@ pub fn decode_meta(key: &Key, meta_enc: &str) -> BoxResult<(PathBuf, u64, u32, b
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sodiumoxide::crypto::secretstream::ABYTES;
+
+    #[test]
+    fn secretstream_roundtrip() {
+        use sodiumoxide::crypto::secretstream::Tag;
+
+        let msg1 = "some message 1";
+        let msg2 = "other message";
+
+        // initialize encrypt secret stream
+        let key = derive_key("test", "salt");
+        let (mut enc_stream, header) = create_secretstream(&key);
+
+        let ciphertext1 = enc_stream.push(msg1.as_bytes(), None, Tag::Push).unwrap();
+        let ciphertext2 = enc_stream.push(msg2.as_bytes(), None, Tag::Message).unwrap();
+        let ciphertext_final = enc_stream.finalize(None).unwrap();
+        assert_eq!(ciphertext1.len(), msg1.len() + ABYTES);
+
+        // initialize decrypt secret stream
+        let mut dec_stream = open_secretstream(header.as_ref(), &key);
+
+        // decrypt first message.
+        assert!(!dec_stream.is_finalized());
+        let (decrypted1, tag1) = dec_stream.pull(&ciphertext1, None).unwrap();
+        assert_eq!(tag1, Tag::Push);
+        assert_eq!(msg1.as_bytes(), &decrypted1[..]);
+
+        // decrypt second message.
+        assert!(!dec_stream.is_finalized());
+        let (decrypted2, tag2) = dec_stream.pull(&ciphertext2, None).unwrap();
+        assert_eq!(tag2, Tag::Message);
+        assert_eq!(msg2.as_bytes(), &decrypted2[..]);
+
+        // decrypt final message.
+        assert!(!dec_stream.is_finalized());
+        let (msg_final, tag_final) = dec_stream.pull(&ciphertext_final, None).unwrap();
+        assert_eq!(tag_final, Tag::Final);
+        assert!(msg_final.is_empty());
+        assert!(dec_stream.is_finalized());
+    }
+}

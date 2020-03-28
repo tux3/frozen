@@ -18,7 +18,6 @@ use crate::box_result::BoxResult;
 use bytes::Bytes;
 use futures::stream::Fuse;
 use futures::{Stream, StreamExt};
-use hyper::Body;
 use std::pin::Pin;
 use tokio::sync::mpsc;
 
@@ -45,15 +44,21 @@ async fn next_stream_bytes<T>(
 /// This reads and returns a buffer up to the desired size (or smaller on EOF)
 /// Returns None when there is nothing left to read. Reports errors to the sender.
 async fn next_stream_bytes_chunked(
-    input_stream: &mut Fuse<Body>,
+    input_stream: &mut Fuse<impl Stream<Item = BoxResult<Bytes>> + Unpin>,
     next_buf: &mut Vec<u8>,
     desired: usize,
     sender: &mut mpsc::Sender<BoxResult<Bytes>>,
 ) -> Option<Bytes> {
+    if next_buf.len() >= desired {
+        let new_next = next_buf[desired..].to_vec();
+        next_buf.truncate(desired);
+        return Some(std::mem::replace(next_buf, new_next).into());
+    }
+
     loop {
         let input = match input_stream.next().await {
             Some(Err(err)) => {
-                let _ = sender.send(Err(Box::new(err))).await;
+                let _ = sender.send(Err(err)).await;
                 break None;
             }
             Some(Ok(input)) => input,
@@ -67,6 +72,7 @@ async fn next_stream_bytes_chunked(
         next_buf.extend_from_slice(&input[..available]);
 
         if available == remaining {
+            debug_assert_eq!(next_buf.len(), desired);
             let new_next = input[available..].to_vec();
             break Some(std::mem::replace(next_buf, new_next).into());
         }
