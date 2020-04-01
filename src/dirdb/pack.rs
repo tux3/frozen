@@ -294,7 +294,13 @@ impl DirStat {
     }
 
     fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
-        let direct_files_count = self.compute_direct_files_count();
+        let mut direct_files_count = self.compute_direct_files_count();
+
+        // We can't skip serializing the content hash if it's been pessimized to zero
+        // Instead pretend a new file may have appeared, we'll need to force a diff anyways
+        if direct_files_count == 0 && self.content_hash == [0; 8] {
+            direct_files_count = 1;
+        }
 
         if info.dir_name.is_none() {
             writer.write_all(&self.dir_name_hash)?;
@@ -306,6 +312,10 @@ impl DirStat {
 
         if direct_files_count > 0 {
             writer.write_all(&self.content_hash)?;
+        } else {
+            for subdir in &self.subfolders {
+                debug_assert!(subdir.dir_name.is_some());
+            }
         }
 
         Ok(())
