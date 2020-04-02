@@ -235,18 +235,27 @@ pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat 
     for remote_subdir in remote.subfolders.iter() {
         match local_subdirs.entry(&remote_subdir.dir_name_hash) {
             Entry::Occupied(e) => {
-                dirstat
-                    .subfolders
-                    .push(merge_dirstats_pessimistic(e.get(), remote_subdir));
+                let pessimized = merge_dirstats_pessimistic(e.get(), remote_subdir);
+
+                // Account for the subdir file count change (avoiding casts & u64 underflow ...)
+                dirstat.total_files_count += pessimized.total_files_count;
+                dirstat.total_files_count -= remote_subdir.total_files_count;
+
+                dirstat.subfolders.push(pessimized);
                 e.remove();
             }
             Entry::Vacant(_) => {
+                // NOTE: We do NOT substract this folder's total_files_count from the parent's
+                // because if the subfolder keeps its total file count then substracting it
+                // from the parent would make the direct_files_count calculation incorrect,
+                // because the latter assumes *all* subfolders have their exact total_files_count.
                 dirstat.subfolders.push(pessimize_dirstat(remote_subdir));
             }
         }
     }
 
     for local_only_subdir in local_subdirs.values() {
+        dirstat.total_files_count += local_only_subdir.total_files_count;
         dirstat.subfolders.push(pessimize_dirstat(local_only_subdir));
     }
 
