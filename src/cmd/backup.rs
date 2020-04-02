@@ -47,6 +47,7 @@ pub async fn backup_one_root(
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 4);
+    let cleanup_progress = progress.get_progress_handler(ProgressType::Cleanup);
     let upload_progress = progress.get_progress_handler(ProgressType::Upload);
     let delete_progress = progress.get_progress_handler(ProgressType::Delete);
 
@@ -55,6 +56,12 @@ pub async fn backup_one_root(
 
     // Lets us wait for all backup actions to complete
     let action_futs = FuturesUnordered::new();
+
+    let unfinished_large_files_fut = {
+        let b2 = b2.clone();
+        let path_hash = root.path_hash.clone();
+        tokio::spawn(async move { b2.list_unfinished_large_files(&path_hash).await })
+    };
 
     let dirdb_path = "dirdb/".to_string() + &root.path_hash;
     let remote_dirdb_fut = {
@@ -81,6 +88,7 @@ pub async fn backup_one_root(
     diff_progress.report_success();
 
     diff_progress.println("Starting backup");
+    let mut num_cleanup_actions = 0;
     let mut num_upload_actions = 0;
     let mut num_delete_actions = 0;
     let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
@@ -124,6 +132,13 @@ pub async fn backup_one_root(
         }
     }
 
+    let unfinished_large_files = unfinished_large_files_fut.await??;
+    for garbage in unfinished_large_files {
+        num_cleanup_actions += 1;
+        action_futs.spawn(action::delete(rate_limiter.clone(), cleanup_progress.clone(), garbage))?;
+    }
+
+    let cleanup_progress = progress.show_progress_bar(ProgressType::Cleanup, num_cleanup_actions);
     let delete_progress = progress.show_progress_bar(ProgressType::Delete, num_delete_actions);
     let upload_progress = progress.show_progress_bar(ProgressType::Upload, num_upload_actions);
     diff_progress.report_success();
@@ -131,6 +146,7 @@ pub async fn backup_one_root(
 
     let packed_local_dirdb = local_dirdb.to_packed(&b2.key)?;
     action_futs.for_each(|()| futures::future::ready(())).await;
+    cleanup_progress.finish();
     upload_progress.finish();
     delete_progress.finish();
     progress.join();

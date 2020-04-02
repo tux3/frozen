@@ -358,6 +358,65 @@ impl B2 {
         Ok(files)
     }
 
+    pub async fn list_unfinished_large_files(&self, prefix: &str) -> BoxResult<Vec<RemoteFile>> {
+        let url = self.api_url.clone() + "/b2api/v2/b2_list_unfinished_large_files";
+
+        let body_base = format!(
+            r#""bucketId":"{}",
+             "namePrefix":"{}""#,
+            self.bucket_id, prefix
+        );
+        let mut start_file_version: Option<String> = None;
+        let mut unfinished_files: Vec<RemoteFile> = Vec::new();
+
+        loop {
+            let (status, body) = self
+                .request_with_backoff(|| {
+                    let body = if let Some(ref ver) = start_file_version {
+                        format!(
+                            r#"{{
+                                "startFileId":"{}",
+                                {}
+                            }}"#,
+                            ver, body_base
+                        )
+                    } else {
+                        format!("{{{}}}", body_base)
+                    };
+
+                    Request::post(&url)
+                        .header(AUTHORIZATION, self.auth_token.clone())
+                        .header(CONNECTION, "keep-alive")
+                        .body(Body::from(body))
+                        .unwrap()
+                })
+                .await?;
+
+            let reply_json = Self::get_json_reply("list_unfinished_large_files", status, body).await?;
+
+            for file in reply_json["files"].as_array().unwrap() {
+                // Ignore non-large files (regular uploads, folders, hidden files) entirely
+                if file["action"] != "start" {
+                    continue;
+                }
+                let full_name = file["fileName"].as_str().unwrap();
+                let id = file["fileId"].as_str().unwrap();
+                let enc_meta = file["fileInfo"]["enc_meta"].as_str().unwrap();
+                let (filename, mtime, mode, is_symlink) = decode_meta(&self.key, enc_meta)?;
+                unfinished_files.push(RemoteFile::new(&filename, full_name, id, mtime, mode, is_symlink))
+            }
+
+            let maybe_next_id = reply_json["nextFileId"].as_str();
+            if let Some(id) = maybe_next_id {
+                start_file_version = Some(id.to_string());
+            } else {
+                break;
+            }
+        }
+
+        Ok(unfinished_files)
+    }
+
     pub async fn get_upload_url(&self) -> BoxResult<B2Upload> {
         let (status, body) = self
             .request_with_backoff(|| {
