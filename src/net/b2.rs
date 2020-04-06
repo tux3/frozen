@@ -17,6 +17,7 @@ use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[derive(Copy, Clone)]
 pub enum FileListDepth {
     Shallow, // List only files in the current "folder"
     Deep,    // List every file recursively

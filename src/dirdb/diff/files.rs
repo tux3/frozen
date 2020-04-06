@@ -22,6 +22,7 @@ enum FileDiffStreamState {
     DownloadFileList {
         list_fut: LocalBoxFuture<'static, BoxResult<Vec<RemoteFile>>>,
         key: crypto::Key,
+        depth: FileListDepth,
     },
     DiffFiles {
         diff_stream: LocalBoxStream<'static, BoxResult<FileDiff>>,
@@ -58,6 +59,7 @@ impl FileDiffStream {
             state: FileDiffStreamState::DownloadFileList {
                 list_fut,
                 key: b2.key.clone(),
+                depth,
             },
             dir_stat,
             dir_path_hash: Some(dir_path_hash),
@@ -135,7 +137,7 @@ impl FileDiffStream {
         futures::stream::iter(std::iter::from_fn(diff_next).map(Result::Ok))
     }
 
-    fn flatten_dirstat_files(
+    fn flatten_dirstat_files_shallow(
         files: &mut HashMap<String, LocalFile>,
         dirstat: &DirStat,
         dir_path_hash: &mut String,
@@ -158,6 +160,15 @@ impl FileDiffStream {
             };
             files.insert(lfile.full_path_hash.clone(), lfile);
         }
+    }
+
+    fn flatten_dirstat_files(
+        files: &mut HashMap<String, LocalFile>,
+        dirstat: &DirStat,
+        dir_path_hash: &mut String,
+        key: &crypto::Key,
+    ) {
+        Self::flatten_dirstat_files_shallow(files, dirstat, dir_path_hash, key);
 
         let cur_dir_path_hash_len = dir_path_hash.len();
         for subdir in dirstat.subfolders.iter() {
@@ -173,6 +184,7 @@ impl FileDiffStream {
         cx: &mut Context<'_>,
         list_fut_poll: Poll<BoxResult<Vec<RemoteFile>>>,
         key: crypto::Key,
+        depth: FileListDepth,
     ) -> Poll<Option<BoxResult<FileDiff>>> {
         match list_fut_poll {
             Poll::Pending => Poll::Pending,
@@ -186,7 +198,11 @@ impl FileDiffStream {
                 // For remote-only diffs the local dir stat is None
                 if let Some(ref local_dir_stat) = self.dir_stat.take() {
                     let mut dir_path_hash = self.dir_path_hash.take().unwrap();
-                    Self::flatten_dirstat_files(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
+                    if let FileListDepth::Deep = depth {
+                        Self::flatten_dirstat_files(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
+                    } else {
+                        Self::flatten_dirstat_files_shallow(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
+                    }
                 }
 
                 let mut diff_stream = Self::make_diff_stream(local_files, remote_files);
@@ -207,10 +223,11 @@ impl Stream for FileDiffStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match &mut self.state {
-            FileDiffStreamState::DownloadFileList { list_fut, key } => {
+            FileDiffStreamState::DownloadFileList { list_fut, key, depth } => {
                 let list_fut_poll = list_fut.poll_unpin(cx);
                 let key = key.clone();
-                self.poll_download_fut(cx, list_fut_poll, key)
+                let depth = *depth;
+                self.poll_download_fut(cx, list_fut_poll, key, depth)
             }
             FileDiffStreamState::DiffFiles { diff_stream } => diff_stream.poll_next_unpin(cx),
             FileDiffStreamState::Failed => Poll::Ready(None),
