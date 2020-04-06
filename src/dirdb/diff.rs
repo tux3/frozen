@@ -22,8 +22,9 @@ pub struct DirDiff {
 }
 
 impl DirDiff {
-    pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: Option<DirDB>) -> BoxResult<DirDiff> {
-        let remote = remote.unwrap_or_else(DirDB::new_empty);
+    pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: &Option<DirDB>) -> BoxResult<DirDiff> {
+        let empty_remote = DirDB::new_empty();
+        let remote = remote.as_ref().unwrap_or(&empty_remote);
         let pessimistic_dirdb = DirDB {
             root: dirs::merge_dirstats_pessimistic(&local.root, &remote.root),
         };

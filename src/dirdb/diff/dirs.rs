@@ -212,6 +212,9 @@ impl DiffTree {
 
 pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat {
     debug_assert!(remote.dir_name_hash == local.dir_name_hash);
+    if remote.dir_name.is_some() {
+        debug_assert_eq!(local.dir_name, remote.dir_name);
+    }
 
     let content_hash = if local.content_hash == remote.content_hash {
         remote.content_hash
@@ -222,8 +225,8 @@ pub fn merge_dirstats_pessimistic(local: &DirStat, remote: &DirStat) -> DirStat 
         total_files_count: remote.total_files_count,
         direct_files: None,
         subfolders: Vec::new(),
-        dir_name: remote.dir_name.clone(),
-        dir_name_hash: remote.dir_name_hash,
+        dir_name: local.dir_name.clone(),
+        dir_name_hash: local.dir_name_hash,
         content_hash,
     };
 

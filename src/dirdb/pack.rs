@@ -27,15 +27,24 @@ struct EncodingSettings {
 fn dirnames_packing_info_inner(stat: &DirStat) -> BoxResult<PackingInfo> {
     let mut info = PackingInfo { ..Default::default() };
 
-    info.need_folder_full_path = false;
+    // We want to be able to restore empty folders, so we need to save their real name
+    info.need_folder_full_path = stat.total_files_count == 0;
     for subfolder in stat.subfolders.iter() {
         let sub_pack_info = dirnames_packing_info_inner(subfolder)?;
+        info.need_folder_full_path |= sub_pack_info.need_folder_full_path;
         info.subfolders.push(sub_pack_info);
     }
 
     // We store the name instead of the hash if it's short enough, or if we genuinely need it
     // We keep names up to 2x the hash size since they typically compress very well
-    if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
+    info.dir_name = if info.need_folder_full_path {
+        Some(
+            stat.dir_name
+                .as_ref()
+                .expect("Cannot serialize DirStat without dir names")
+                .as_slice(),
+        )
+    } else if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
         None
     } else {
         stat.dir_name.as_deref()

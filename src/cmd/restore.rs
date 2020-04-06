@@ -1,7 +1,9 @@
 use crate::action;
 use crate::box_result::BoxResult;
 use crate::config::Config;
+use crate::data::paths::path_from_bytes;
 use crate::data::{paths::path_from_arg, root};
+use crate::dirdb::dirstat::DirStat;
 use crate::dirdb::{
     diff::{DirDiff, FileDiff},
     DirDB,
@@ -14,8 +16,9 @@ use clap::ArgMatches;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::task::spawn_blocking;
 
 pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     let path = path_from_arg(args, "source")?;
@@ -64,7 +67,7 @@ pub async fn restore_one_root(
         .and_then(|data| DirDB::new_from_packed(&data, &b2.key).ok());
     diff_progress.report_success();
 
-    let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), target_dirdb.clone(), remote_dirdb)?;
+    let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), target_dirdb.clone(), &remote_dirdb)?;
     let target = Arc::new(target);
 
     diff_progress.println("Starting download");
@@ -109,9 +112,22 @@ pub async fn restore_one_root(
     diff_progress.report_success();
     diff_progress.finish();
 
+    let empty_folders_task = remote_dirdb.map(|dirdb| {
+        let target = target.clone();
+        spawn_blocking(move || {
+            // Note how the root folder doesn't have a folder name, it's just the relative root "/"
+            for subfolder in dirdb.root.subfolders {
+                restore_empty_folders(subfolder, &target);
+            }
+        })
+    });
+
     action_futs.for_each(|()| futures::future::ready(())).await;
     download_progress.finish();
     progress.join();
+    if let Some(task) = empty_folders_task {
+        task.await?;
+    }
 
     if progress.is_complete() {
         Ok(())
@@ -120,5 +136,21 @@ pub async fn restore_one_root(
             "Couldn't complete all operations, {} error(s)",
             progress.errors_count()
         )))
+    }
+}
+
+fn restore_empty_folders(dir: DirStat, target: &Path) {
+    let dir_path = if let Some(dir_name) = dir.dir_name {
+        target.join(path_from_bytes(&dir_name).unwrap())
+    } else {
+        return;
+    };
+
+    if dir.total_files_count == 0 {
+        let _ = fs::create_dir(&dir_path);
+    }
+
+    for subfolder in dir.subfolders {
+        restore_empty_folders(subfolder, &dir_path);
     }
 }

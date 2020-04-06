@@ -78,7 +78,7 @@ pub async fn backup_one_root(
         .ok()
         .and_then(|data| DirDB::new_from_packed(&data, &b2.key).ok());
 
-    let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), local_dirdb.clone(), remote_dirdb)?;
+    let mut dir_diff = DirDiff::new(root.clone(), b2.clone(), local_dirdb.clone(), &remote_dirdb)?;
     let path = Arc::new(path);
     diff_progress.report_success();
 
