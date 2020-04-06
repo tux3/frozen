@@ -1,11 +1,8 @@
 use crate::box_result::BoxResult;
 use crate::crypto::{self, Key};
 use crate::data::paths::path_from_bytes;
-use crate::data::paths::path_to_bytes;
 use crate::dirdb::bitstream::*;
 use crate::dirdb::DirStat;
-use blake2::digest::{Input, VariableOutput};
-use blake2::VarBlake2b;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use zstd::stream::{read::Decoder, write::Encoder};
@@ -27,44 +24,18 @@ struct EncodingSettings {
     dirname_counts: Encoding,
 }
 
-fn rebuild_content_hash_from_subfolders(rel_path: &Path, stat: &mut DirStat) -> BoxResult<()> {
-    let mut hasher = VarBlake2b::new(8)?;
-    for subfolder in stat.subfolders.iter() {
-        let sub_name: &Path = path_from_bytes(subfolder.dir_name.as_ref().unwrap())?;
-        let sub_rel_path = rel_path.join(sub_name);
-        hasher.input(path_to_bytes(&sub_rel_path).unwrap());
-        hasher.input(&subfolder.content_hash);
-    }
-    hasher.variable_result(|hash| stat.content_hash.copy_from_slice(hash));
-    Ok(())
-}
-
-fn dirnames_packing_info_inner(stat: &DirStat, parent_has_no_files: bool) -> BoxResult<PackingInfo> {
+fn dirnames_packing_info_inner(stat: &DirStat) -> BoxResult<PackingInfo> {
     let mut info = PackingInfo { ..Default::default() };
 
-    let direct_files_count = stat.compute_direct_files_count();
-
-    // If the parent has no direct files, then we'll want to compute its content hash from
-    // just the subfolders, and that means we need dirnames. Similarly if we have no direct files.
-    // We also need all our parents to store dirname in this case, so this flag bubbles up and down
-    let no_direct_files = direct_files_count == 0;
-    info.need_folder_full_path = parent_has_no_files || no_direct_files;
+    info.need_folder_full_path = false;
     for subfolder in stat.subfolders.iter() {
-        let sub_pack_info = dirnames_packing_info_inner(subfolder, no_direct_files)?;
-        info.need_folder_full_path |= sub_pack_info.need_folder_full_path;
+        let sub_pack_info = dirnames_packing_info_inner(subfolder)?;
         info.subfolders.push(sub_pack_info);
     }
 
     // We store the name instead of the hash if it's short enough, or if we genuinely need it
     // We keep names up to 2x the hash size since they typically compress very well
-    info.dir_name = if info.need_folder_full_path {
-        Some(
-            stat.dir_name
-                .as_ref()
-                .expect("Cannot serialize DirStat without dir names")
-                .as_slice(),
-        )
-    } else if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
+    if stat.dir_name.is_some() && stat.dir_name.as_ref().unwrap().len() > 16 {
         None
     } else {
         stat.dir_name.as_deref()
@@ -82,7 +53,7 @@ fn dirnames_packing_info(stat: &DirStat) -> BoxResult<PackingInfo> {
         ..Default::default()
     };
     for subfolder in stat.subfolders.iter() {
-        info.subfolders.push(dirnames_packing_info_inner(subfolder, false)?);
+        info.subfolders.push(dirnames_packing_info_inner(subfolder)?);
     }
     Ok(info)
 }
@@ -248,11 +219,7 @@ impl DirStat {
         }
         stat.total_files_count = total_files_count;
 
-        if direct_files_count > 0 {
-            reader.read_exact(&mut stat.content_hash)?;
-        } else {
-            rebuild_content_hash_from_subfolders(&dir_rel_path.unwrap(), &mut stat)?;
-        }
+        reader.read_exact(&mut stat.content_hash)?;
 
         Ok(stat)
     }
@@ -294,14 +261,6 @@ impl DirStat {
     }
 
     fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
-        let mut direct_files_count = self.compute_direct_files_count();
-
-        // We can't skip serializing the content hash if it's been pessimized to zero
-        // Instead pretend a new file may have appeared, we'll need to force a diff anyways
-        if direct_files_count == 0 && self.content_hash == [0; 8] {
-            direct_files_count = 1;
-        }
-
         if info.dir_name.is_none() {
             writer.write_all(&self.dir_name_hash)?;
         }
@@ -310,14 +269,7 @@ impl DirStat {
             stat_subfolder.serialize_subdirs(info_subfolder, writer)?;
         }
 
-        if direct_files_count > 0 {
-            writer.write_all(&self.content_hash)?;
-        } else {
-            for subdir in &self.subfolders {
-                debug_assert!(subdir.dir_name.is_some());
-            }
-        }
-
+        writer.write_all(&self.content_hash)?;
         Ok(())
     }
 
