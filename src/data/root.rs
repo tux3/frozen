@@ -2,6 +2,7 @@ use crate::box_result::BoxResult;
 use crate::crypto;
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::net::b2;
+use crate::prompt::prompt_yes_no;
 use bincode::{deserialize, serialize};
 use data_encoding::HEXLOWER_PERMISSIVE;
 use serde::{Deserialize, Serialize};
@@ -70,8 +71,8 @@ impl BackupRoot {
         }
         let locks = locks.unwrap();
 
-        if locks.len() > 1 {
-            let _ = self.unlock();
+        if locks.len() > 1 && !prompt_yes_no("Backup root already locked, continue anyways?") {
+            let _ = self.unlock().await;
 
             return Err(From::from(format!(
                 "Failed to lock the backup root, {} lock already exists",
