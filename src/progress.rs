@@ -20,8 +20,8 @@ impl ProgressType {
         match self {
             ProgressType::Diff => "Diff folder [{bar:50}]",
             ProgressType::Cleanup => "Cleanup [{bar:50}] {pos}/{len}",
-            ProgressType::Upload => "Upload file [{bar:50.blue}] {pos}/{len}",
-            ProgressType::Download => "Download file [{bar:50.green}] {pos}/{len}",
+            ProgressType::Upload => "Upload file [{bar:50.green}] {pos}/{len}",
+            ProgressType::Download => "Download file [{bar:50.blue}] {pos}/{len}",
             ProgressType::Delete => "Delete file [{bar:50.red}] {pos}/{len}",
         }
     }
