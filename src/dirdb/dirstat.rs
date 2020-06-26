@@ -32,13 +32,13 @@ impl DirStat {
         let mut subfolders = Vec::new();
 
         let mut entries = std::fs::read_dir(dir_path)?.filter_map(|e| e.ok()).collect::<Vec<_>>();
-        entries.sort_by(|a, b| a.path().cmp(&b.path()));
+        entries.sort_by_key(|a| a.path());
 
         for entry in entries {
             let path = entry.path();
             let rel_path = PathBuf::from(path.strip_prefix(base_path)?);
             hasher.update(path_to_bytes(&rel_path).unwrap());
-            let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
+            let is_symlink = entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false);
             if path.is_dir() && !is_symlink {
                 let subfolder = DirStat::new(&base_path, &path)?;
                 total_files_count += subfolder.total_files_count;

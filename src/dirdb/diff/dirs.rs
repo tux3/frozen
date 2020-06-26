@@ -37,9 +37,9 @@ fn optimized_diff_tree(local: ArcRef<DirDB, DirStat>, remote: &DirStat) -> Optio
     }
 
     let tree = DiffTree::new(&mut prefix_path_hash, &local, &remote);
-    tree.and_then(|mut tree| {
+    tree.map(|mut tree| {
         tree.optimize();
-        Some(tree)
+        tree
     })
 }
 
