@@ -2,7 +2,7 @@ use super::FileStat;
 use crate::box_result::BoxResult;
 use crate::crypto::{self, Key};
 use crate::data::paths::path_to_bytes;
-use blake2::digest::{Input, VariableOutput};
+use blake2::digest::{Update, VariableOutput};
 use blake2::VarBlake2b;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -37,20 +37,20 @@ impl DirStat {
         for entry in entries {
             let path = entry.path();
             let rel_path = PathBuf::from(path.strip_prefix(base_path)?);
-            hasher.input(path_to_bytes(&rel_path).unwrap());
+            hasher.update(path_to_bytes(&rel_path).unwrap());
             let is_symlink = entry.file_type().and_then(|ft| Ok(ft.is_symlink())).unwrap_or(false);
             if path.is_dir() && !is_symlink {
                 let subfolder = DirStat::new(&base_path, &path)?;
                 total_files_count += subfolder.total_files_count;
-                hasher.input(&subfolder.content_hash);
+                hasher.update(&subfolder.content_hash);
                 subfolders.push(subfolder);
             } else {
                 total_files_count += 1;
                 let meta = entry.metadata()?;
                 let mtime = meta.modified()?.duration_since(SystemTime::UNIX_EPOCH)?;
-                hasher.input(&mtime.as_secs().to_le_bytes());
-                hasher.input(&mtime.subsec_nanos().to_le_bytes());
-                hasher.input(&meta.len().to_le_bytes());
+                hasher.update(&mtime.as_secs().to_le_bytes());
+                hasher.update(&mtime.subsec_nanos().to_le_bytes());
+                hasher.update(&meta.len().to_le_bytes());
 
                 direct_files.push(FileStat::new(rel_path, meta)?);
             }
@@ -64,7 +64,7 @@ impl DirStat {
             dir_name: Some(dir_name.to_owned()),
             ..Default::default()
         };
-        hasher.variable_result(|hash| result.content_hash.copy_from_slice(hash));
+        hasher.finalize_variable(|hash| result.content_hash.copy_from_slice(hash));
         Ok(result)
     }
 

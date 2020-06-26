@@ -2,7 +2,7 @@ use crate::box_result::BoxResult;
 use bincode::{deserialize, serialize};
 use blake2::VarBlake2b;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
-use digest::{Digest, Input, VariableOutput};
+use digest::{Digest, Update, VariableOutput};
 use sha1::Sha1;
 use sodiumoxide::crypto::secretstream::{Header, Pull, Push, Stream as SecretStream};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
@@ -97,30 +97,30 @@ pub fn hash_path_dir_into(
 ) {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
-    hasher.input(dir_path_hash.as_bytes());
-    hasher.input(secret_dirname);
-    hasher.variable_result(|res| out.copy_from_slice(res));
+    hasher.update(dir_path_hash.as_bytes());
+    hasher.update(secret_dirname);
+    hasher.finalize_variable(|res| out.copy_from_slice(res));
 }
 
 pub fn hash_path_filename_into(parent_hash: &[u8], secret_filename: &[u8], key: &Key, out: &mut String) {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, FILENAME_PATH_HASH_LEN);
-    hasher.input(parent_hash);
-    hasher.input(secret_filename);
-    base64::encode_config_buf(&hasher.vec_result(), base64::URL_SAFE_NO_PAD, out);
+    hasher.update(parent_hash);
+    hasher.update(secret_filename);
+    base64::encode_config_buf(&hasher.finalize_boxed(), base64::URL_SAFE_NO_PAD, out);
 }
 
 pub fn hash_path_root(secret_root_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
-    hasher.input(serialize(secret_root_path).unwrap());
-    base64::encode_config(&hasher.vec_result(), base64::URL_SAFE_NO_PAD)
+    hasher.update(serialize(secret_root_path).unwrap());
+    base64::encode_config(&hasher.finalize_boxed(), base64::URL_SAFE_NO_PAD)
 }
 
 pub fn sha1_string(data: &[u8]) -> String {
     let mut hash = Sha1::default();
-    <Sha1 as Input>::input(&mut hash, data);
-    HEXLOWER_PERMISSIVE.encode(&hash.result())
+    <Sha1 as Update>::update(&mut hash, data);
+    HEXLOWER_PERMISSIVE.encode(&hash.finalize())
 }
 
 pub fn randombytes(count: usize) -> Vec<u8> {
