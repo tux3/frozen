@@ -15,3 +15,6 @@ pub use unlock::unlock;
 
 mod rename;
 pub use rename::rename;
+
+mod save_key;
+pub use save_key::save_key;

@@ -84,6 +84,10 @@ async fn async_main() -> BoxResult<()> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("save-key")
+                .about("Saves a keyfile on this computer that will be used instead of your backup password."),
+        )
+        .subcommand(
             SubCommand::with_name("rename")
                 .about("Rename a backed-up folder on the server.")
                 .arg(
@@ -109,6 +113,7 @@ async fn async_main() -> BoxResult<()> {
         ("unlock", Some(sub_args)) => cmd::unlock(&config, sub_args).await,
         ("list", Some(sub_args)) => cmd::list(&config, sub_args).await,
         ("rename", Some(sub_args)) => cmd::rename(&config, sub_args).await,
+        ("save-key", Some(sub_args)) => cmd::save_key(&config, sub_args).await,
         _ => unreachable!(),
     }
     .map_err(|err| From::from(format!("\r{} failed: {}", args.subcommand_name().unwrap(), err)))

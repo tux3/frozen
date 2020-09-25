@@ -1,13 +1,16 @@
 use crate::box_result::BoxResult;
-use crate::crypto::{decrypt, derive_key, encrypt, AppKeys};
+use crate::crypto::{decrypt, derive_key, encrypt, AppKeys, Key};
 use crate::prompt::{prompt, prompt_password, prompt_yes_no};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::PathBuf;
 
 static CONFIG_FILE_RELPATH: &str = ".config/frozen.json";
+static KEY_FILE_RELPATH: &str = ".config/frozen.key";
 pub static UPLOAD_THREADS_DEFAULT: u16 = 16;
 pub static DOWNLOAD_THREADS_DEFAULT: u16 = 8;
 pub static DELETE_THREADS_DEFAULT: u16 = 32;
@@ -48,23 +51,49 @@ impl Config {
         config
     }
 
+    fn try_derive_app_keys(&self, key: &Key) -> Option<AppKeys> {
+        if let Ok(app_key) = decrypt(&self.encrypted_app_key, key) {
+            Some(AppKeys {
+                b2_key_id: self.app_key_id.clone(),
+                b2_key: String::from_utf8(app_key).unwrap(),
+                encryption_key: key.to_owned(),
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn get_app_keys(&self) -> BoxResult<AppKeys> {
-        let keys = loop {
+        if let Ok(key) = std::fs::read(Self::get_keyfile_path()) {
+            let key = Key::from_slice(key.as_slice()).expect("Invalid keyfile");
+            if let Some(app_key) = self.try_derive_app_keys(&key) {
+                return Ok(app_key);
+            } else {
+                eprintln!("Found a keyfile, but failed to decrypt app keys. You may be using the wrong keyfile.");
+            }
+        }
+
+        loop {
             let pwd = prompt_password("Enter your backup password");
             let key = derive_key(&pwd, &self.bucket_name);
-            if let Ok(app_key) = decrypt(&self.encrypted_app_key, &key) {
-                break AppKeys {
-                    b2_key_id: self.app_key_id.clone(),
-                    b2_key: String::from_utf8(app_key)?,
-                    encryption_key: key,
-                };
+            if let Some(app_key) = self.try_derive_app_keys(&key) {
+                return Ok(app_key);
             }
             if !prompt_yes_no("Invalid password, try again?") {
                 return Err(From::from("Couldn't decrypt config file"));
             }
-        };
+        }
+    }
 
-        Ok(keys)
+    pub fn has_keyfile() -> bool {
+        Self::get_keyfile_path().exists()
+    }
+
+    pub fn save_encryption_key(app_keys: &AppKeys) -> BoxResult<()> {
+        let key = app_keys.encryption_key.as_ref();
+        let mut file = File::create(Self::get_keyfile_path())?;
+        file.write_all(key)?;
+        Ok(())
     }
 
     fn new_interactive() -> Config {
@@ -120,8 +149,13 @@ impl Config {
         Ok(())
     }
 
-    fn get_file_path() -> String {
-        let home = env::var("HOME").unwrap();
-        home + "/" + CONFIG_FILE_RELPATH
+    fn get_file_path() -> PathBuf {
+        let home = env::var_os("HOME").unwrap();
+        [home, OsString::from(CONFIG_FILE_RELPATH)].iter().collect()
+    }
+
+    fn get_keyfile_path() -> PathBuf {
+        let home = env::var_os("HOME").unwrap();
+        [home, OsString::from(KEY_FILE_RELPATH)].iter().collect()
     }
 }
