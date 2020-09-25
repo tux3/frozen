@@ -162,7 +162,7 @@ impl B2 {
                 return Err(From::from(format!(
                     "authenticate failed to parse json: {}",
                     std::str::from_utf8(&body).unwrap()
-                )))
+                )));
             }
             Ok(json) => json,
         };
@@ -505,30 +505,27 @@ impl B2 {
         self.upload_file_stream(b2upload, filename, data_stream, enc_meta).await
     }
 
-    // NOTE: The 'a lifetimes and the manual async/impl Future work around rust-lang/rust#63033
-    pub fn upload_file_stream<'a>(
-        &'a self,
-        b2upload: &'a B2Upload,
-        filename: &'a str,
+    pub async fn upload_file_stream(
+        &self,
+        b2upload: &B2Upload,
+        filename: &str,
         data_stream: impl Stream<Item = BoxResult<Bytes>> + Unpin + Send + Sync + 'static,
         enc_meta: Option<String>,
-    ) -> impl std::future::Future<Output = BoxResult<RemoteFileVersion>> + 'a {
-        async move {
-            let enc_meta = if enc_meta.is_some() {
-                enc_meta.as_ref().unwrap().to_owned()
-            } else {
-                let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                let mode = 0o644;
-                encode_meta(&self.key, Path::new(filename), last_modified, mode, false)
-            };
+    ) -> BoxResult<RemoteFileVersion> {
+        let enc_meta = if enc_meta.is_some() {
+            enc_meta.as_ref().unwrap().to_owned()
+        } else {
+            let last_modified = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let mode = 0o644;
+            encode_meta(&self.key, Path::new(filename), last_modified, mode, false)
+        };
 
-            let lower_bound_size = data_stream.size_hint().0;
-            if lower_bound_size >= 2 {
-                self.upload_large_file_stream(filename, data_stream, &enc_meta).await
-            } else {
-                self.upload_small_file_stream(b2upload, filename, data_stream, &enc_meta)
-                    .await
-            }
+        let lower_bound_size = data_stream.size_hint().0;
+        if lower_bound_size >= 2 {
+            self.upload_large_file_stream(filename, data_stream, &enc_meta).await
+        } else {
+            self.upload_small_file_stream(b2upload, filename, data_stream, &enc_meta)
+                .await
         }
     }
 
@@ -720,7 +717,7 @@ impl B2 {
                     "{} failed to parse json: {}",
                     api_name,
                     std::str::from_utf8(&body).unwrap()
-                )))
+                )));
             }
             Ok(json) => json,
         };

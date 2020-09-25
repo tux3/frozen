@@ -8,10 +8,7 @@ use std::path::{Component, Path, PathBuf};
 fn remove_relative_components(path: &Path) -> BoxResult<PathBuf> {
     let mut components = Vec::new();
     let mut skip = 0;
-    let comp_iter = path.components().filter(|comp| match comp {
-        Component::CurDir => false,
-        _ => true,
-    });
+    let comp_iter = path.components().filter(|comp| !matches!(comp, Component::CurDir));
     for comp in comp_iter.rev() {
         if let Component::ParentDir = comp {
             skip += 1;

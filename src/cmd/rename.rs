@@ -22,7 +22,7 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResu
             return Err(From::from(format!(
                 "Backup folder {} does not exist",
                 src_path.display()
-            )))
+            )));
         }
     };
 

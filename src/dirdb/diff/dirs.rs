@@ -147,11 +147,7 @@ impl DiffTree {
         let div = files_count / MAX_FILES_PER_REQUEST;
         let rem = files_count % MAX_FILES_PER_REQUEST;
         // NOTE: We don't eliminate requests with 0 expected remote files at the moment
-        if rem != 0 || files_count == 0 {
-            div + 1
-        } else {
-            div
-        }
+        if rem != 0 || files_count == 0 { div + 1 } else { div }
     }
 
     /// Optimizes how many requests are needed to diff this tree, and returns the number

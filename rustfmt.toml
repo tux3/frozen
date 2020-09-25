@@ -1,4 +1,5 @@
 edition = "2018"
+version = "Two"
 
 # Line length limits
 max_width = 120
