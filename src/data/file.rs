@@ -1,4 +1,4 @@
-use crate::box_result::BoxResult;
+use eyre::Result;
 use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,13 +32,13 @@ impl LocalFile {
         root_path.join(&self.rel_path)
     }
 
-    pub fn is_symlink_at(&self, root_path: &Path) -> BoxResult<bool> {
+    pub fn is_symlink_at(&self, root_path: &Path) -> Result<bool> {
         Ok(fs::symlink_metadata(self.full_path(root_path))?
             .file_type()
             .is_symlink())
     }
 
-    pub fn readlink_at(&self, root_path: &Path) -> BoxResult<Vec<u8>> {
+    pub fn readlink_at(&self, root_path: &Path) -> Result<Vec<u8>> {
         Ok(Vec::from(
             fs::read_link(self.full_path(root_path))?.to_str().unwrap().as_bytes(),
         ))

@@ -1,5 +1,5 @@
-use crate::box_result::BoxResult;
 use crate::crypto::{decrypt, encrypt, Key};
+use eyre::Result;
 use std::path::Path;
 
 mod bitstream;
@@ -29,7 +29,7 @@ impl DirDB {
         }
     }
 
-    pub fn new_from_local(path: &Path, key: &Key) -> BoxResult<Self> {
+    pub fn new_from_local(path: &Path, key: &Key) -> Result<Self> {
         let mut root = DirStat::new(path, path)?;
 
         // It'd be meaningless for the root dir to have a name relative to itself!
@@ -42,14 +42,14 @@ impl DirDB {
         Ok(Self { root })
     }
 
-    pub fn new_from_packed(packed: &[u8], key: &Key) -> BoxResult<Self> {
+    pub fn new_from_packed(packed: &[u8], key: &Key) -> Result<Self> {
         let decrypted = decrypt(packed, key)?;
         Ok(Self {
             root: DirStat::new_from_bytes(&mut decrypted.as_slice(), key)?,
         })
     }
 
-    pub fn to_packed(&self, key: &Key) -> BoxResult<Vec<u8>> {
+    pub fn to_packed(&self, key: &Key) -> Result<Vec<u8>> {
         let mut packed_plain = Vec::new();
         self.root.serialize_into(&mut packed_plain)?;
         Ok(encrypt(&packed_plain, key))

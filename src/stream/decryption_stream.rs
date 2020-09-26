@@ -1,7 +1,7 @@
-use crate::box_result::{BoxError, BoxResult};
 use crate::crypto::{open_secretstream, Key};
 use crate::stream::next_stream_bytes_chunked;
 use bytes::Bytes;
+use eyre::{eyre, Result};
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt, TryStreamExt};
 use hyper::Body;
@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct DecryptionStream {
-    output: mpsc::Receiver<BoxResult<Bytes>>,
+    output: mpsc::Receiver<Result<Bytes>>,
 }
 
 impl DecryptionStream {
@@ -23,15 +23,15 @@ impl DecryptionStream {
         Self { output: recv }
     }
 
-    async fn process(input: Body, key: Key, mut sender: mpsc::Sender<BoxResult<Bytes>>) {
+    async fn process(input: Body, key: Key, mut sender: mpsc::Sender<Result<Bytes>>) {
         let mut buf = Vec::new();
-        let mut input = input.map_err(|err| Box::new(err) as BoxError).fuse();
+        let mut input = input.map_err(From::from).fuse();
 
         let mut secret_stream = match next_stream_bytes_chunked(&mut input, &mut buf, HEADERBYTES, &mut sender).await {
             Some(header) if header.len() == HEADERBYTES => open_secretstream(header.as_ref(), &key),
             _ => {
                 let _ = sender
-                    .send(Err(From::from(
+                    .send(Err(eyre!(
                         "Couldn't decrypt: failed to read secretstream header. Is the data corrupt?",
                     )))
                     .await;
@@ -46,7 +46,7 @@ impl DecryptionStream {
                     Ok(result) => result,
                     Err(()) => {
                         let _ = sender
-                            .send(Err(From::from(
+                            .send(Err(eyre!(
                                 "Decryption failed: could not decrypt the encrypted chunk size",
                             )))
                             .await;
@@ -60,7 +60,7 @@ impl DecryptionStream {
             }
             _ => {
                 let _ = sender
-                    .send(Err(From::from(
+                    .send(Err(eyre!(
                         "Couldn't decrypt: failed to read chunk size header. Is the data corrupt?",
                     )))
                     .await;
@@ -73,9 +73,7 @@ impl DecryptionStream {
                 Ok(result) => result,
                 Err(()) => {
                     let _ = sender
-                        .send(Err(From::from(
-                            "Decryption failed: Unknown error in secret_stream.pull()",
-                        )))
+                        .send(Err(eyre!("Decryption failed: Unknown error in secret_stream.pull()",)))
                         .await;
                     return;
                 }
@@ -89,7 +87,7 @@ impl DecryptionStream {
 }
 
 impl Stream for DecryptionStream {
-    type Item = BoxResult<Bytes>;
+    type Item = Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.output.poll_next_unpin(cx)

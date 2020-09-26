@@ -1,8 +1,8 @@
-use crate::box_result::BoxResult;
 use crate::crypto::{self, Key};
 use crate::data::paths::path_from_bytes;
 use crate::dirdb::bitstream::*;
 use crate::dirdb::DirStat;
+use eyre::Result;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use zstd::stream::{read::Decoder, write::Encoder};
@@ -24,7 +24,7 @@ struct EncodingSettings {
     dirname_counts: Encoding,
 }
 
-fn dirnames_packing_info_inner(stat: &DirStat) -> BoxResult<PackingInfo> {
+fn dirnames_packing_info_inner(stat: &DirStat) -> Result<PackingInfo> {
     let mut info = PackingInfo { ..Default::default() };
 
     // We want to be able to restore empty folders, so we need to save their real name
@@ -54,7 +54,7 @@ fn dirnames_packing_info_inner(stat: &DirStat) -> BoxResult<PackingInfo> {
 }
 
 /// Collects info to remove subdir names that are too long or unnecessary
-fn dirnames_packing_info(stat: &DirStat) -> BoxResult<PackingInfo> {
+fn dirnames_packing_info(stat: &DirStat) -> Result<PackingInfo> {
     // The root folder should never serialize its name, it's only the contents we care about.
     let mut info = PackingInfo {
         need_folder_full_path: false,
@@ -169,7 +169,7 @@ impl DirStat {
         subdirs_count_stream: &mut BitstreamReader,
         dirname_count_stream: &mut BitstreamReader,
         subdirs_reader: &mut R,
-    ) -> BoxResult<Self> {
+    ) -> Result<Self> {
         let direct_files_count = files_count_stream.read();
         let subfolders_count = subdirs_count_stream.read();
         let dir_name_len = dirname_count_stream.read();
@@ -234,7 +234,7 @@ impl DirStat {
     }
 
     /// Load directory stats from a buffer produced by `serialize_into`
-    pub fn new_from_bytes(reader: &mut &[u8], key: &Key) -> BoxResult<Self> {
+    pub fn new_from_bytes(reader: &mut &[u8], key: &Key) -> Result<Self> {
         let mut files_count_stream = BitstreamReader::new(reader);
         let mut subdirs_count_stream = BitstreamReader::new(files_count_stream.slice_after());
         let mut dirname_count_stream = BitstreamReader::new(subdirs_count_stream.slice_after());
@@ -257,7 +257,7 @@ impl DirStat {
         )
     }
 
-    fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
+    fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> Result<()> {
         if let Some(dir_name) = info.dir_name {
             writer.write_all(&dir_name)?;
         }
@@ -269,7 +269,7 @@ impl DirStat {
         Ok(())
     }
 
-    fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> BoxResult<()> {
+    fn serialize_subdirs<W: Write>(&self, info: &PackingInfo, writer: &mut W) -> Result<()> {
         if info.dir_name.is_none() {
             writer.write_all(&self.dir_name_hash)?;
         }
@@ -287,7 +287,7 @@ impl DirStat {
         bitstream_writer: &mut BitstreamWriter<W>,
         get_number: &F,
         get_subfolders: &G,
-    ) -> BoxResult<()>
+    ) -> Result<()>
     where
         F: Fn(&T) -> u64,
         G: Fn(&T) -> &[T],
@@ -304,7 +304,7 @@ impl DirStat {
 
     /// Serialized the directory stats into a writer. On error partial data may have been written.
     /// This kind of error is best handled by giving up, the user's machine ain't working today.
-    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> BoxResult<()> {
+    pub fn serialize_into<W: Write>(&self, writer: &mut W) -> Result<()> {
         let packing_info = dirnames_packing_info(self)?;
         let encoding_settings = best_encoding_settings(&self, &packing_info);
 
@@ -355,13 +355,13 @@ impl DirStat {
 
 #[cfg(test)]
 mod tests {
-    use crate::box_result::BoxResult;
     use crate::crypto::Key;
     use crate::dirdb::DirStat;
+    use eyre::Result;
     use std::path::Path;
 
     #[test]
-    fn serialize_roundtrip() -> BoxResult<()> {
+    fn serialize_roundtrip() -> Result<()> {
         let path = Path::new("test_data");
 
         let mut stat = DirStat::new(path, path)?;

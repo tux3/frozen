@@ -14,8 +14,8 @@ pub use hashed_stream::*;
 mod simple_bytes_stream;
 pub use simple_bytes_stream::*;
 
-use crate::box_result::BoxResult;
 use bytes::Bytes;
+use eyre::Result;
 use futures::stream::Fuse;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
@@ -28,8 +28,8 @@ pub const CHUNK_BUFFER_COUNT: usize = 1;
 
 /// This returns the next buffer from the stream, or None. Reports errors to the sender.
 async fn next_stream_bytes<T>(
-    input_stream: &mut Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
-    sender: &mut mpsc::Sender<BoxResult<T>>,
+    input_stream: &mut Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>,
+    sender: &mut mpsc::Sender<Result<T>>,
 ) -> Option<Bytes> {
     match input_stream.next().await {
         Some(Err(err)) => {
@@ -44,10 +44,10 @@ async fn next_stream_bytes<T>(
 /// This reads and returns a buffer up to the desired size (or smaller on EOF)
 /// Returns None when there is nothing left to read. Reports errors to the sender.
 async fn next_stream_bytes_chunked(
-    input_stream: &mut Fuse<impl Stream<Item = BoxResult<Bytes>> + Unpin>,
+    input_stream: &mut Fuse<impl Stream<Item = Result<Bytes>> + Unpin>,
     next_buf: &mut Vec<u8>,
     desired: usize,
-    sender: &mut mpsc::Sender<BoxResult<Bytes>>,
+    sender: &mut mpsc::Sender<Result<Bytes>>,
 ) -> Option<Bytes> {
     if next_buf.len() >= desired {
         let new_next = next_buf[desired..].to_vec();

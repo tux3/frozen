@@ -1,10 +1,9 @@
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use clap::{App, Arg, SubCommand};
+use eyre::{Result, WrapErr};
 use std::process::exit;
 
 mod action;
-mod box_result;
 mod cmd;
 mod config;
 mod crypto;
@@ -20,7 +19,7 @@ mod stream;
 mod test_helpers;
 
 #[tokio::main]
-async fn async_main() -> BoxResult<()> {
+async fn async_main() -> Result<()> {
     let args = App::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
         .arg(
@@ -116,7 +115,7 @@ async fn async_main() -> BoxResult<()> {
         ("save-key", Some(sub_args)) => cmd::save_key(&config, sub_args).await,
         _ => unreachable!(),
     }
-    .map_err(|err| From::from(format!("\r{} failed: {}", args.subcommand_name().unwrap(), err)))
+    .wrap_err_with(|| format!("\r{} failed", args.subcommand_name().unwrap()))
 }
 
 fn main() {
@@ -124,7 +123,7 @@ fn main() {
     let return_code = match async_main() {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("{}", err);
+            eprintln!("{:#}", err);
             1
         }
     };

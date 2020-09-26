@@ -1,7 +1,7 @@
-use crate::box_result::BoxResult;
 use crate::crypto::{create_secretstream, Key};
 use crate::stream::{next_stream_bytes_chunked, STREAMS_CHUNK_SIZE};
 use bytes::Bytes;
+use eyre::{eyre, Result};
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt};
 use sodiumoxide::crypto::secretstream::{Header, Push, Stream as SecretStream};
@@ -11,12 +11,12 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct EncryptionStream {
-    output: mpsc::Receiver<BoxResult<Bytes>>,
+    output: mpsc::Receiver<Result<Bytes>>,
     stream_lower_bound: usize,
 }
 
 impl EncryptionStream {
-    pub fn new(input: Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>, key: &Key) -> Self {
+    pub fn new(input: Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>, key: &Key) -> Self {
         let stream_lower_bound = input.size_hint().0;
         let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
 
@@ -30,10 +30,10 @@ impl EncryptionStream {
     }
 
     async fn process(
-        input_stream: Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
+        input_stream: Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>,
         mut secret_stream: SecretStream<Push>,
         secret_stream_header: Header,
-        mut sender: mpsc::Sender<BoxResult<Bytes>>,
+        mut sender: mpsc::Sender<Result<Bytes>>,
     ) {
         let mut buf = Vec::new();
         let mut input = input_stream.fuse();
@@ -60,7 +60,7 @@ impl EncryptionStream {
                 return;
             }
         } else {
-            let _ = sender.send(Err(From::from("No input data, failed to encrypt!"))).await;
+            let _ = sender.send(Err(eyre!("No input data, failed to encrypt!"))).await;
             return;
         }
 
@@ -76,7 +76,7 @@ impl EncryptionStream {
 }
 
 impl Stream for EncryptionStream {
-    type Item = BoxResult<Bytes>;
+    type Item = Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.output.poll_next_unpin(cx)

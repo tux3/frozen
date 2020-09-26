@@ -1,5 +1,5 @@
 use super::*;
-use crate::box_result::BoxResult;
+use eyre::{ensure, Result};
 use std::io::Write;
 
 pub struct BitstreamWriter<'w, W: Write> {
@@ -31,10 +31,8 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         stream
     }
 
-    fn write_bits(&mut self, mut bits: u64, mut size: usize) -> BoxResult<()> {
-        if self.finished {
-            return Err(From::from("Cannot write to a bitstream after calling finish()"));
-        }
+    fn write_bits(&mut self, mut bits: u64, mut size: usize) -> Result<()> {
+        ensure!(!self.finished, "Cannot write to a bitstream after calling finish()");
         self.written += size;
 
         let mut remaining_buf_bits = 8 - self.buf_used;
@@ -59,7 +57,7 @@ impl<'w, W: Write> BitstreamWriter<'w, W> {
         Ok(())
     }
 
-    pub fn write(&mut self, item: u64) -> BoxResult<()> {
+    pub fn write(&mut self, item: u64) -> Result<()> {
         if self.encoding.bits == 0 {
             return Ok(()); // I mean sure, why not encode an empty bitstream!
         }
@@ -112,10 +110,10 @@ impl<'w, W: Write> Drop for BitstreamWriter<'w, W> {
 mod tests {
     use super::super::Encoding;
     use super::BitstreamWriter;
-    use crate::box_result::BoxResult;
+    use eyre::Result;
 
     #[test]
-    fn write_raw_bytes() -> BoxResult<()> {
+    fn write_raw_bytes() -> Result<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {
@@ -140,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn write_raw_nibbles() -> BoxResult<()> {
+    fn write_raw_nibbles() -> Result<()> {
         let to_encode = [0u8, 1, 17, 42, 254, 255];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {
@@ -166,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn write_leb128() -> BoxResult<()> {
+    fn write_leb128() -> Result<()> {
         let to_encode = [0, 1, 17, 42, 127, 128, 254, 255, 25519, std::u64::MAX - 1];
         let mut writer = Vec::new();
         let mut stream = BitstreamWriter {

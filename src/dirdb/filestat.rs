@@ -1,4 +1,4 @@
-use crate::box_result::BoxResult;
+use eyre::Result;
 use std::fs::Metadata;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ pub struct FileStat {
 }
 
 impl FileStat {
-    pub fn new(rel_path: PathBuf, meta: Metadata) -> BoxResult<Self> {
+    pub fn new(rel_path: PathBuf, meta: Metadata) -> Result<Self> {
         Ok(FileStat {
             rel_path,
             last_modified: meta.modified()?.duration_since(UNIX_EPOCH).unwrap().as_secs(),

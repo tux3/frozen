@@ -1,9 +1,9 @@
 use self::files::FileDiffStream;
 use super::{DirDB, DirStat};
-use crate::box_result::BoxResult;
 use crate::crypto::Key;
 use crate::data::root::BackupRoot;
 use crate::net::b2::B2;
+use eyre::Result;
 use futures::stream::{SelectAll, Stream, StreamExt};
 use futures::task::Poll;
 use owning_ref::ArcRef;
@@ -22,7 +22,7 @@ pub struct DirDiff {
 }
 
 impl DirDiff {
-    pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: &Option<DirDB>) -> BoxResult<DirDiff> {
+    pub fn new(root: Arc<BackupRoot>, b2: Arc<B2>, local: Arc<DirDB>, remote: &Option<DirDB>) -> Result<DirDiff> {
         let empty_remote = DirDB::new_empty();
         let remote = remote.as_ref().unwrap_or(&empty_remote);
         let pessimistic_dirdb = DirDB {
@@ -38,13 +38,13 @@ impl DirDiff {
         })
     }
 
-    pub fn get_pessimistic_dirdb_data(&self, key: &Key) -> BoxResult<Vec<u8>> {
+    pub fn get_pessimistic_dirdb_data(&self, key: &Key) -> Result<Vec<u8>> {
         self.pessimistic_dirdb.to_packed(key)
     }
 }
 
 impl Stream for DirDiff {
-    type Item = BoxResult<FileDiff>;
+    type Item = Result<FileDiff>;
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context) -> Poll<Option<Self::Item>> {
         self.diff_stream.poll_next_unpin(context)

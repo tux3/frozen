@@ -1,5 +1,5 @@
-use crate::box_result::BoxResult;
 use bytes::Bytes;
+use eyre::Result;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use tokio::macros::support::Pin;
@@ -16,7 +16,7 @@ impl SimpleBytesStream {
 }
 
 impl Stream for SimpleBytesStream {
-    type Item = BoxResult<Bytes>;
+    type Item = Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {

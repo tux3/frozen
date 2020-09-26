@@ -1,6 +1,6 @@
-use crate::box_result::BoxResult;
 use crate::stream::STREAMS_CHUNK_SIZE;
 use bytes::Bytes;
+use eyre::Result;
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt};
 use std::io::Read;
@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::block_in_place;
 
 pub struct CompressionStream {
-    output: mpsc::Receiver<BoxResult<Bytes>>,
+    output: mpsc::Receiver<Result<Bytes>>,
     stream_lower_bound: usize,
 }
 
@@ -28,7 +28,7 @@ impl CompressionStream {
     async fn process(
         input: Box<dyn Read + Send>,
         compress_level: i32,
-        mut sender: mpsc::Sender<BoxResult<Bytes>>,
+        mut sender: mpsc::Sender<Result<Bytes>>,
         lower_bound_send: oneshot::Sender<usize>,
     ) {
         let mut encoder = zstd::stream::read::Encoder::new(input, compress_level).unwrap();
@@ -77,7 +77,7 @@ impl CompressionStream {
 }
 
 impl Stream for CompressionStream {
-    type Item = BoxResult<Bytes>;
+    type Item = Result<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.output.poll_next_unpin(cx)

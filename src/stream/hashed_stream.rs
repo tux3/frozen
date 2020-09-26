@@ -1,6 +1,6 @@
-use crate::box_result::BoxResult;
 use crate::crypto::sha1_string;
 use bytes::Bytes;
+use eyre::Result;
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt};
 use tokio::macros::support::Pin;
@@ -8,12 +8,12 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct HashedStream {
-    output: mpsc::Receiver<BoxResult<(Bytes, String)>>,
+    output: mpsc::Receiver<Result<(Bytes, String)>>,
     stream_lower_bound: usize,
 }
 
 impl HashedStream {
-    pub fn new(input: Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>) -> Self {
+    pub fn new(input: Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>) -> Self {
         let stream_lower_bound = input.size_hint().0;
         let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
         tokio::task::spawn(Self::process(input.into(), send));
@@ -24,8 +24,8 @@ impl HashedStream {
     }
 
     async fn process(
-        mut input_stream: Pin<Box<dyn Stream<Item = BoxResult<Bytes>> + Send + Sync>>,
-        mut sender: mpsc::Sender<BoxResult<(Bytes, String)>>,
+        mut input_stream: Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>,
+        mut sender: mpsc::Sender<Result<(Bytes, String)>>,
     ) {
         while let Some(input) = input_stream.next().await {
             match input {
@@ -45,7 +45,7 @@ impl HashedStream {
 }
 
 impl Stream for HashedStream {
-    type Item = BoxResult<(Bytes, String)>;
+    type Item = Result<(Bytes, String)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.output.poll_next_unpin(cx)

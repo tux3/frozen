@@ -1,10 +1,10 @@
 use super::{DirDB, DirStat};
-use crate::box_result::BoxResult;
 use crate::crypto;
 use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::filename_to_bytes;
 use crate::data::root::BackupRoot;
 use crate::net::b2::{FileListDepth, B2};
+use eyre::Result;
 use futures::future::{FutureExt, LocalBoxFuture};
 use futures::stream::{LocalBoxStream, Stream, StreamExt};
 use futures::task::{Context, Poll};
@@ -20,12 +20,12 @@ pub struct FileDiff {
 
 enum FileDiffStreamState {
     DownloadFileList {
-        list_fut: LocalBoxFuture<'static, BoxResult<Vec<RemoteFile>>>,
+        list_fut: LocalBoxFuture<'static, Result<Vec<RemoteFile>>>,
         key: crypto::Key,
         depth: FileListDepth,
     },
     DiffFiles {
-        diff_stream: LocalBoxStream<'static, BoxResult<FileDiff>>,
+        diff_stream: LocalBoxStream<'static, Result<FileDiff>>,
     },
     Failed,
 }
@@ -95,7 +95,7 @@ impl FileDiffStream {
     fn make_diff_stream(
         local_files: HashMap<String, LocalFile>,
         remote_files: Vec<RemoteFile>,
-    ) -> impl Stream<Item = BoxResult<FileDiff>> {
+    ) -> impl Stream<Item = Result<FileDiff>> {
         enum LocalFilesEnum<F: FnMut((String, LocalFile)) -> FileDiff> {
             HashMap(HashMap<String, LocalFile>),
             RemainingIter(std::iter::Map<IntoIter<String, LocalFile>, F>),
@@ -182,10 +182,10 @@ impl FileDiffStream {
     fn poll_download_fut(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        list_fut_poll: Poll<BoxResult<Vec<RemoteFile>>>,
+        list_fut_poll: Poll<Result<Vec<RemoteFile>>>,
         key: crypto::Key,
         depth: FileListDepth,
-    ) -> Poll<Option<BoxResult<FileDiff>>> {
+    ) -> Poll<Option<Result<FileDiff>>> {
         match list_fut_poll {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Err(e)) => {
@@ -219,7 +219,7 @@ impl FileDiffStream {
 }
 
 impl Stream for FileDiffStream {
-    type Item = BoxResult<FileDiff>;
+    type Item = Result<FileDiff>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match &mut self.state {

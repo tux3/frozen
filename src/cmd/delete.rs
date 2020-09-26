@@ -1,5 +1,4 @@
 use crate::action;
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::{paths::path_from_arg, root};
 use crate::net::b2::{FileListDepth, B2};
@@ -7,12 +6,13 @@ use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::interruptible;
 use clap::ArgMatches;
+use eyre::{bail, Result};
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::path::Path;
 use std::sync::Arc;
 
-pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
+pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
     let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 
@@ -36,7 +36,7 @@ async fn delete_one_root(
     path: &Path,
     root: &root::BackupRoot,
     roots: &mut Vec<root::BackupRoot>,
-) -> BoxResult<()> {
+) -> Result<()> {
     // We can't start removing files without pessimizing the DirDB (or removing it entirely!)
     let dirdb_path = "dirdb/".to_string() + &root.path_hash;
     if let err @ Err(_) = b2.hide_file(&dirdb_path).await {
@@ -78,12 +78,8 @@ async fn delete_one_root(
     println!("Deleting backup root");
     root::delete_root(b2, roots, &path).await?;
 
-    if progress.is_complete() {
-        Ok(())
-    } else {
-        Err(From::from(format!(
-            "Couldn't complete all operations, {} error(s)",
-            progress.errors_count()
-        )))
+    if !progress.is_complete() {
+        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
     }
+    Ok(())
 }

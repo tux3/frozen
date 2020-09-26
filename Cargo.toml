@@ -32,6 +32,7 @@ futures-intrusive = "0.3"
 crossbeam = "0.7"
 indicatif = "0.15"
 tempfile = "3"
+eyre = "0.6"
 
 [profile.release]
 lto = true

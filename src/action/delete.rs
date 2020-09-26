@@ -1,6 +1,7 @@
 use crate::data::file::{RemoteFile, RemoteFileVersion};
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
+use eyre::WrapErr;
 use std::borrow::Borrow;
 
 pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHandler, file: RemoteFile) {
@@ -17,15 +18,12 @@ pub async fn delete(rate_limiter: impl Borrow<RateLimiter>, progress: ProgressHa
         id: file.id.clone(),
     };
 
-    let err = b2.delete_file_version(&version).await.map_err(|err| {
-        format!(
-            "Failed to delete last version of \"{}\": {}",
-            file.rel_path.display(),
-            err
-        )
-    });
-    if let Err(msg) = err {
-        progress.report_error(&msg);
+    let err = b2
+        .delete_file_version(&version)
+        .await
+        .wrap_err_with(|| format!("Failed to delete last version of \"{}\"", file.rel_path.display()));
+    if let Err(err) = err {
+        progress.report_error(format!("{:#}", err));
         return;
     }
 

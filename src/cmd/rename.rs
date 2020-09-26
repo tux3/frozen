@@ -1,10 +1,10 @@
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::{paths::path_from_arg, root};
 use crate::net::b2::B2;
 use clap::ArgMatches;
+use eyre::{bail, Result};
 
-pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResult<()> {
+pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<()> {
     let src_path = path_from_arg(args, "source")?;
     let target_path = path_from_arg(args, "target")?;
 
@@ -19,10 +19,7 @@ pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> BoxResu
     let root = match roots.iter_mut().find(|r| r.path == *src_path) {
         Some(root) => root,
         None => {
-            return Err(From::from(format!(
-                "Backup folder {} does not exist",
-                src_path.display()
-            )));
+            bail!("Backup folder {} does not exist", src_path.display());
         }
     };
 

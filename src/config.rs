@@ -1,6 +1,6 @@
-use crate::box_result::BoxResult;
 use crate::crypto::{decrypt, derive_key, encrypt, AppKeys, Key};
 use crate::prompt::{prompt, prompt_password, prompt_yes_no};
+use eyre::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
@@ -63,7 +63,7 @@ impl Config {
         }
     }
 
-    pub fn get_app_keys(&self) -> BoxResult<AppKeys> {
+    pub fn get_app_keys(&self) -> Result<AppKeys> {
         if let Ok(key) = std::fs::read(Self::get_keyfile_path()) {
             let key = Key::from_slice(key.as_slice()).expect("Invalid keyfile");
             if let Some(app_key) = self.try_derive_app_keys(&key) {
@@ -80,7 +80,7 @@ impl Config {
                 return Ok(app_key);
             }
             if !prompt_yes_no("Invalid password, try again?") {
-                return Err(From::from("Couldn't decrypt config file"));
+                bail!("Couldn't decrypt config file");
             }
         }
     }
@@ -89,7 +89,7 @@ impl Config {
         Self::get_keyfile_path().exists()
     }
 
-    pub fn save_encryption_key(app_keys: &AppKeys) -> BoxResult<()> {
+    pub fn save_encryption_key(app_keys: &AppKeys) -> Result<()> {
         let key = app_keys.encryption_key.as_ref();
         let mut file = File::create(Self::get_keyfile_path())?;
         file.write_all(key)?;

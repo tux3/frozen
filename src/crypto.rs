@@ -1,8 +1,8 @@
-use crate::box_result::BoxResult;
 use bincode::{deserialize, serialize};
 use blake2::VarBlake2b;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
 use digest::{Digest, Update, VariableOutput};
+use eyre::{bail, eyre, Result};
 use sha1::Sha1;
 use sodiumoxide::crypto::secretstream::{Header, Pull, Push, Stream as SecretStream};
 use sodiumoxide::crypto::{hash, pwhash, secretbox};
@@ -76,9 +76,9 @@ pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
     cipher
 }
 
-pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
+pub fn decrypt(cipher: &[u8], key: &Key) -> Result<Vec<u8>> {
     if cipher.len() < secretbox::NONCEBYTES {
-        return Err(From::from("Decryption failed, input too small"));
+        bail!("Decryption failed, input too small");
     }
     let nonce_index = cipher.len() - secretbox::NONCEBYTES;
     let mut nonce = [0; secretbox::NONCEBYTES];
@@ -86,7 +86,7 @@ pub fn decrypt(cipher: &[u8], key: &Key) -> BoxResult<Vec<u8>> {
         *dst = *src;
     }
 
-    secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key).map_err(|_| From::from("Decryption failed"))
+    secretbox::open(&cipher[0..nonce_index], &secretbox::Nonce(nonce), key).map_err(|()| eyre!("Decryption failed"))
 }
 
 pub fn hash_path_dir_into(
@@ -133,7 +133,7 @@ pub fn encode_meta(key: &Key, filename: &Path, time: u64, mode: u32, is_symlink:
     BASE64URL_NOPAD.encode(&encrypt(&encoded, key))
 }
 
-pub fn decode_meta(key: &Key, meta_enc: &str) -> BoxResult<(PathBuf, u64, u32, bool)> {
+pub fn decode_meta(key: &Key, meta_enc: &str) -> Result<(PathBuf, u64, u32, bool)> {
     let data = BASE64URL_NOPAD.decode(meta_enc.as_bytes())?;
     let plain = decrypt(&data, key)?;
     Ok(deserialize(&plain[..])?)

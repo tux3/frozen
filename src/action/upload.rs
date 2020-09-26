@@ -3,6 +3,7 @@ use crate::data::file::LocalFile;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
 use crate::stream::{CompressionStream, EncryptionStream};
+use eyre::WrapErr;
 use std::borrow::Borrow;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -72,9 +73,9 @@ pub async fn upload(
     let err = b2
         .upload_file_stream(upload_url, filehash, encrypted_stream, Some(enc_meta))
         .await
-        .map_err(|err| format!("Failed to upload file \"{}\": {}", rel_path.display(), err));
+        .wrap_err_with(|| format!("Failed to upload file \"{}\"", rel_path.display()));
     if let Err(err) = err {
-        progress.report_error(&err);
+        progress.report_error(format!("{:#}", err));
         permit.take(); // The upload_url might be invalid now, let's get a new one
         return;
     }

@@ -2,6 +2,7 @@ use crate::data::file::RemoteFile;
 use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
 use crate::stream::{DecompressionStream, DecryptionStream};
+use eyre::WrapErr;
 use futures::StreamExt;
 use std::borrow::Borrow;
 use std::fs::{self, Permissions};
@@ -25,10 +26,10 @@ pub async fn download(
     let encrypted = b2
         .download_file_stream(&file.full_path_hash)
         .await
-        .map_err(|err| format!("Failed to download file \"{}\": {}", file.rel_path.display(), err));
+        .wrap_err_with(|| format!("Failed to download file \"{}\"", file.rel_path.display()));
     let encrypted = match encrypted {
         Err(err) => {
-            progress.report_error(&err);
+            progress.report_error(format!("{:#}", err));
             return;
         }
         Ok(data) => data,

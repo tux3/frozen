@@ -1,4 +1,3 @@
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::crypto::{self, decode_meta, encode_meta, sha1_string, AppKeys};
 use crate::data::file::{RemoteFile, RemoteFileVersion};
@@ -6,6 +5,7 @@ use crate::progress::ProgressHandler;
 use crate::stream::{HashedStream, SimpleBytesStream};
 use bytes::Bytes;
 use data_encoding::BASE64_NOPAD;
+use eyre::{bail, ensure, eyre, Result};
 use futures::{Stream, StreamExt};
 use hyper::client::{Client, HttpConnector};
 use hyper::header::{AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE};
@@ -84,7 +84,7 @@ fn make_client() -> Client<HttpsConnector<HttpConnector>> {
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(&self, req_builder: F) -> BoxResult<(StatusCode, Bytes)>
+    async fn request_with_backoff<F>(&self, req_builder: F) -> Result<(StatusCode, Bytes)>
     where
         F: FnMut() -> Request<Body>,
     {
@@ -93,7 +93,7 @@ impl B2 {
         Ok((status, body_bytes))
     }
 
-    async fn request_stream_with_backoff<F>(&self, mut req_builder: F) -> BoxResult<(StatusCode, Body)>
+    async fn request_stream_with_backoff<F>(&self, mut req_builder: F) -> Result<(StatusCode, Body)>
     where
         F: FnMut() -> Request<Body>,
     {
@@ -142,7 +142,7 @@ impl B2 {
         }
     }
 
-    pub async fn authenticate(config: &Config, keys: &AppKeys) -> BoxResult<B2> {
+    pub async fn authenticate(config: &Config, keys: &AppKeys) -> Result<B2> {
         let client = make_client();
         let basic_auth = make_basic_auth(keys);
         let bucket_name = config.bucket_name.to_owned();
@@ -158,12 +158,10 @@ impl B2 {
         let body = hyper::body::to_bytes(res.into_body()).await?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
-            Err(_) => {
-                return Err(From::from(format!(
-                    "authenticate failed to parse json: {}",
-                    std::str::from_utf8(&body).unwrap()
-                )));
-            }
+            Err(_) => bail!(
+                "authenticate failed to parse json: {}",
+                std::str::from_utf8(&body).unwrap()
+            ),
             Ok(json) => json,
         };
 
@@ -172,7 +170,7 @@ impl B2 {
             if let Value::String(ref reply_err_msg) = reply_json["message"] {
                 err_msg += &(String::from(": ") + &reply_err_msg);
             }
-            return Err(From::from(err_msg));
+            bail!(err_msg);
         }
 
         let bucket_download_url = format!(
@@ -198,7 +196,7 @@ impl B2 {
         Ok(b2)
     }
 
-    async fn get_bucket_id(&self, bucket_name: &str) -> BoxResult<String> {
+    async fn get_bucket_id(&self, bucket_name: &str) -> Result<String> {
         let bucket_name = bucket_name.to_owned(); // Can't wait for the Pin API!
 
         let (status, body) = self
@@ -227,10 +225,10 @@ impl B2 {
                 return Ok(bucket["bucketId"].as_str().unwrap().to_string());
             }
         }
-        Err(From::from(format!("Bucket '{}' not found", bucket_name)))
+        Err(eyre!("Bucket '{}' not found", bucket_name))
     }
 
-    pub async fn list_remote_files(&self, prefix: &str, depth: FileListDepth) -> BoxResult<Vec<RemoteFile>> {
+    pub async fn list_remote_files(&self, prefix: &str, depth: FileListDepth) -> Result<Vec<RemoteFile>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_names";
 
         let delimiter = match depth {
@@ -293,7 +291,7 @@ impl B2 {
         Ok(files)
     }
 
-    pub async fn list_remote_file_versions(&self, prefix: &str) -> BoxResult<Vec<RemoteFileVersion>> {
+    pub async fn list_remote_file_versions(&self, prefix: &str) -> Result<Vec<RemoteFileVersion>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_file_versions";
 
         let body_base = format!(
@@ -358,7 +356,7 @@ impl B2 {
         Ok(files)
     }
 
-    pub async fn list_unfinished_large_files(&self, prefix: &str) -> BoxResult<Vec<RemoteFile>> {
+    pub async fn list_unfinished_large_files(&self, prefix: &str) -> Result<Vec<RemoteFile>> {
         let url = self.api_url.clone() + "/b2api/v2/b2_list_unfinished_large_files";
 
         let body_base = format!(
@@ -417,7 +415,7 @@ impl B2 {
         Ok(unfinished_files)
     }
 
-    pub async fn get_upload_url(&self) -> BoxResult<B2Upload> {
+    pub async fn get_upload_url(&self) -> Result<B2Upload> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
@@ -436,7 +434,7 @@ impl B2 {
     }
 
     /// The returned B2Upload struct is only valid for the one large file being uploaded
-    pub async fn get_upload_part_url(&self, file_id: &str) -> BoxResult<B2Upload> {
+    pub async fn get_upload_part_url(&self, file_id: &str) -> Result<B2Upload> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_part_url")
@@ -448,13 +446,12 @@ impl B2 {
             .await?;
 
         let reply_json: Value = serde_json::from_slice(&body)?;
-        if !status.is_success() {
-            return Err(From::from(format!(
-                "get_upload_part_url failed with error {}: {}",
-                status.as_u16(),
-                reply_json["message"]
-            )));
-        }
+        ensure!(
+            status.is_success(),
+            "get_upload_part_url failed with error {}: {}",
+            status.as_u16(),
+            reply_json["message"]
+        );
 
         Ok(B2Upload {
             upload_url: reply_json["uploadUrl"].as_str().unwrap().to_string(),
@@ -462,7 +459,7 @@ impl B2 {
         })
     }
 
-    pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> BoxResult<()> {
+    pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> Result<()> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_delete_file_version")
@@ -479,17 +476,17 @@ impl B2 {
 
         if !status.is_success() {
             let reply_json: Value = serde_json::from_slice(&body)?;
-            return Err(From::from(format!(
+            bail!(
                 "Removal of {} failed with error {}: {}",
                 file_version.path,
                 status.as_u16(),
                 reply_json["message"]
-            )));
+            );
         }
         Ok(())
     }
 
-    pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> BoxResult<RemoteFileVersion> {
+    pub async fn upload_file_simple(&self, filename: &str, data: Vec<u8>) -> Result<RemoteFileVersion> {
         let upload_url = self.get_upload_url().await?;
         self.upload_file(&upload_url, filename, data, None).await
     }
@@ -500,7 +497,7 @@ impl B2 {
         filename: &str,
         data: Vec<u8>,
         enc_meta: Option<String>,
-    ) -> BoxResult<RemoteFileVersion> {
+    ) -> Result<RemoteFileVersion> {
         let data_stream = Box::new(SimpleBytesStream::new(data.into()));
         self.upload_file_stream(b2upload, filename, data_stream, enc_meta).await
     }
@@ -509,9 +506,9 @@ impl B2 {
         &self,
         b2upload: &B2Upload,
         filename: &str,
-        data_stream: impl Stream<Item = BoxResult<Bytes>> + Unpin + Send + Sync + 'static,
+        data_stream: impl Stream<Item = Result<Bytes>> + Unpin + Send + Sync + 'static,
         enc_meta: Option<String>,
-    ) -> BoxResult<RemoteFileVersion> {
+    ) -> Result<RemoteFileVersion> {
         let enc_meta = if enc_meta.is_some() {
             enc_meta.as_ref().unwrap().to_owned()
         } else {
@@ -534,9 +531,9 @@ impl B2 {
         &self,
         b2upload: &B2Upload,
         filename: &str,
-        mut data_stream: impl Stream<Item = BoxResult<Bytes>> + Unpin + Send + Sync + 'static,
+        mut data_stream: impl Stream<Item = Result<Bytes>> + Unpin + Send + Sync + 'static,
         enc_meta: &str,
-    ) -> BoxResult<RemoteFileVersion> {
+    ) -> Result<RemoteFileVersion> {
         let data = data_stream.next().await;
         let data = data.expect("Data stream to upload must not be empty")?;
         // Small files here means files that have only one chunk
@@ -570,9 +567,9 @@ impl B2 {
     async fn upload_large_file_stream(
         &self,
         filename: &str,
-        data_stream: impl Stream<Item = BoxResult<Bytes>> + Unpin + Send + Sync + 'static,
+        data_stream: impl Stream<Item = Result<Bytes>> + Unpin + Send + Sync + 'static,
         enc_meta: &str,
-    ) -> BoxResult<RemoteFileVersion> {
+    ) -> Result<RemoteFileVersion> {
         let file_id = self.start_large_file(filename, enc_meta).await?;
         let result = self.upload_large_file_stream_parts(&file_id, data_stream).await;
 
@@ -585,8 +582,8 @@ impl B2 {
     async fn upload_large_file_stream_parts(
         &self,
         file_id: &str,
-        data_stream: impl Stream<Item = BoxResult<Bytes>> + Unpin + Send + Sync + 'static,
-    ) -> BoxResult<RemoteFileVersion> {
+        data_stream: impl Stream<Item = Result<Bytes>> + Unpin + Send + Sync + 'static,
+    ) -> Result<RemoteFileVersion> {
         let b2upload = self.get_upload_part_url(&file_id).await?;
         let mut part_hashes = Vec::<String>::new();
 
@@ -613,7 +610,7 @@ impl B2 {
         part_index: usize,
         sha1: &str,
         data: Bytes,
-    ) -> BoxResult<()> {
+    ) -> Result<()> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(upload_url)
@@ -632,7 +629,7 @@ impl B2 {
         Ok(())
     }
 
-    async fn finish_large_file(&self, file_id: &str, part_hashes: &[String]) -> BoxResult<RemoteFileVersion> {
+    async fn finish_large_file(&self, file_id: &str, part_hashes: &[String]) -> Result<RemoteFileVersion> {
         let part_hashes_json = part_hashes
             .iter()
             .map(|hash| '"'.to_string() + hash + "\"")
@@ -663,7 +660,7 @@ impl B2 {
         })
     }
 
-    async fn cancel_large_file(&self, file_id: &str) -> BoxResult<()> {
+    async fn cancel_large_file(&self, file_id: &str) -> Result<()> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_cancel_large_file")
@@ -683,7 +680,7 @@ impl B2 {
         Ok(())
     }
 
-    async fn start_large_file(&self, filename: &str, enc_meta: &str) -> BoxResult<String> {
+    async fn start_large_file(&self, filename: &str, enc_meta: &str) -> Result<String> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_start_large_file")
@@ -710,36 +707,35 @@ impl B2 {
         Ok(reply_json["fileId"].as_str().unwrap().to_string())
     }
 
-    async fn get_json_reply(api_name: &str, status: StatusCode, body: Bytes) -> BoxResult<Value> {
+    async fn get_json_reply(api_name: &str, status: StatusCode, body: Bytes) -> Result<Value> {
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => {
-                return Err(From::from(format!(
+                bail!(
                     "{} failed to parse json: {}",
                     api_name,
                     std::str::from_utf8(&body).unwrap()
-                )));
+                );
             }
             Ok(json) => json,
         };
 
-        if !status.is_success() {
-            return Err(From::from(format!(
-                "{} failed with error {}: {}, {}",
-                api_name,
-                status.as_u16(),
-                reply_json["code"],
-                reply_json["message"]
-            )));
-        }
+        ensure!(
+            status.is_success(),
+            "{} failed with error {}: {}, {}",
+            api_name,
+            status.as_u16(),
+            reply_json["code"],
+            reply_json["message"]
+        );
         Ok(reply_json)
     }
 
-    pub async fn download_file(&self, filename: &str) -> BoxResult<Bytes> {
+    pub async fn download_file(&self, filename: &str) -> Result<Bytes> {
         let body = self.download_file_stream(filename).await?;
         Ok(hyper::body::to_bytes(body).await?)
     }
 
-    pub async fn download_file_stream(&self, filename: &str) -> BoxResult<Body> {
+    pub async fn download_file_stream(&self, filename: &str) -> Result<Body> {
         let filename = filename.to_owned();
         let (status, body) = self
             .request_stream_with_backoff(|| {
@@ -751,18 +747,16 @@ impl B2 {
             })
             .await?;
 
-        if !status.is_success() {
-            return Err(From::from(format!(
-                "Download of {} failed with error {}",
-                filename,
-                status.as_u16()
-            )));
-        }
-
+        ensure!(
+            status.is_success(),
+            "Download of {} failed with error {}",
+            filename,
+            status.as_u16()
+        );
         Ok(body)
     }
 
-    pub async fn hide_file(&self, file_path_hash: &str) -> BoxResult<()> {
+    pub async fn hide_file(&self, file_path_hash: &str) -> Result<()> {
         let (status, body) = self
             .request_with_backoff(|| {
                 Request::post(self.api_url.clone() + "/b2api/v2/b2_hide_file")
@@ -779,12 +773,12 @@ impl B2 {
 
         if !status.is_success() {
             let reply_json: Value = serde_json::from_slice(&body)?;
-            return Err(From::from(format!(
+            bail!(
                 "Hiding of {} failed with error {}: {}",
                 file_path_hash,
                 status.as_u16(),
                 reply_json["message"]
-            )));
+            );
         }
         Ok(())
     }

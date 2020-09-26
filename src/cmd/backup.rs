@@ -1,5 +1,4 @@
 use crate::action;
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::paths::path_from_arg;
 use crate::data::root::{self, BackupRoot};
@@ -9,15 +8,16 @@ use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::interruptible;
 use clap::ArgMatches;
+use eyre::{bail, Result};
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
+pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
     let path = path_from_arg(args, "source")?;
     if !path.is_dir() {
-        return Err(From::from(format!("{} is not a folder!", &path.display())));
+        bail!("{} is not a folder!", &path.display());
     }
     let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
     let keys = config.get_app_keys()?;
@@ -43,7 +43,7 @@ pub async fn backup_one_root(
     path: PathBuf,
     mut b2: b2::B2,
     root: Arc<BackupRoot>,
-) -> BoxResult<()> {
+) -> Result<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 4);
@@ -151,14 +151,11 @@ pub async fn backup_one_root(
     delete_progress.finish();
     progress.join();
 
-    if progress.is_complete() {
-        println!("Uploading new DirDB");
-        b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
-        Ok(())
-    } else {
-        Err(From::from(format!(
-            "Couldn't complete all operations, {} error(s)",
-            progress.errors_count()
-        )))
+    if !progress.is_complete() {
+        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
     }
+
+    println!("Uploading new DirDB");
+    b2.upload_file_simple(&dirdb_path, packed_local_dirdb).await?;
+    Ok(())
 }

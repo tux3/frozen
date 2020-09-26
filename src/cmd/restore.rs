@@ -1,5 +1,4 @@
 use crate::action;
-use crate::box_result::BoxResult;
 use crate::config::Config;
 use crate::data::paths::path_from_bytes;
 use crate::data::{paths::path_from_arg, root};
@@ -13,6 +12,7 @@ use crate::net::rate_limiter::RateLimiter;
 use crate::progress::{Progress, ProgressType};
 use crate::signal::interruptible;
 use clap::ArgMatches;
+use eyre::{bail, Result};
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::task::SpawnExt;
 use std::fs;
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
 
-pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
+pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
     let path = path_from_arg(args, "source")?;
     let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
     fs::create_dir_all(&target)?;
@@ -42,12 +42,7 @@ pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> BoxResult<()> {
     result
 }
 
-pub async fn restore_one_root(
-    config: &Config,
-    target: PathBuf,
-    mut b2: B2,
-    root: Arc<root::BackupRoot>,
-) -> BoxResult<()> {
+pub async fn restore_one_root(config: &Config, target: PathBuf, mut b2: B2, root: Arc<root::BackupRoot>) -> Result<()> {
     println!("Starting diff");
     let progress = Progress::new(config.verbose);
     let diff_progress = progress.show_progress_bar(ProgressType::Diff, 3);
@@ -129,14 +124,10 @@ pub async fn restore_one_root(
         task.await?;
     }
 
-    if progress.is_complete() {
-        Ok(())
-    } else {
-        Err(From::from(format!(
-            "Couldn't complete all operations, {} error(s)",
-            progress.errors_count()
-        )))
+    if !progress.is_complete() {
+        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
     }
+    Ok(())
 }
 
 fn restore_empty_folders(dir: DirStat, target: &Path) {
