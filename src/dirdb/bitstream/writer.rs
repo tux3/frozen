@@ -164,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::identity_op)] // Come on! Code is for humans, not linters!
     fn write_leb128() -> Result<()> {
         let to_encode = [0, 1, 17, 42, 127, 128, 254, 255, 25519, std::u64::MAX - 1];
         let mut writer = Vec::new();
