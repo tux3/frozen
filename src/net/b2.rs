@@ -23,7 +23,7 @@ pub enum FileListDepth {
     Deep,    // List every file recursively
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct B2Upload {
     pub upload_url: String,
     pub auth_token: String,
