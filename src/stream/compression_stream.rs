@@ -28,7 +28,7 @@ impl CompressionStream {
     async fn process(
         input: Box<dyn Read + Send>,
         compress_level: i32,
-        mut sender: mpsc::Sender<Result<Bytes>>,
+        sender: mpsc::Sender<Result<Bytes>>,
         lower_bound_send: oneshot::Sender<usize>,
     ) {
         let mut encoder = zstd::stream::read::Encoder::new(input, compress_level).unwrap();

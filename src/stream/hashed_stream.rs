@@ -25,7 +25,7 @@ impl HashedStream {
 
     async fn process(
         mut input_stream: Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>,
-        mut sender: mpsc::Sender<Result<(Bytes, String)>>,
+        sender: mpsc::Sender<Result<(Bytes, String)>>,
     ) {
         while let Some(input) = input_stream.next().await {
             match input {
