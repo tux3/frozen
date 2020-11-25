@@ -1,5 +1,6 @@
 use crate::crypto::{create_secretstream, Key};
 use crate::stream::{next_stream_bytes_chunked, STREAMS_CHUNK_SIZE};
+use async_stream::stream;
 use bytes::Bytes;
 use eyre::{eyre, Result};
 use futures::task::{Context, Poll};
@@ -11,20 +12,25 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct EncryptionStream {
-    output: mpsc::Receiver<Result<Bytes>>,
+    output: Pin<Box<dyn Stream<Item = Result<Bytes>> + Sync + Send>>,
     stream_lower_bound: usize,
 }
 
 impl EncryptionStream {
     pub fn new(input: Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>, key: &Key) -> Self {
         let stream_lower_bound = input.size_hint().0;
-        let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
+        let (send, mut recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
 
         let (secret_stream, header) = create_secretstream(key);
 
         tokio::task::spawn(Self::process(input.into(), secret_stream, header, send));
+        let stream_recv = Box::pin(stream! {
+            while let Some(item) = recv.recv().await {
+                yield item;
+            }
+        });
         Self {
-            output: recv,
+            output: stream_recv,
             stream_lower_bound,
         }
     }

@@ -1,4 +1,5 @@
 use crate::stream::next_stream_bytes;
+use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
 use futures::task::{Context, Poll};
@@ -10,7 +11,7 @@ use tokio::task::block_in_place;
 
 /// This "stream" takes a compressed input stream, but writes its output directly to an impl Write
 pub struct DecompressionStream {
-    output: mpsc::Receiver<Result<()>>,
+    output: Pin<Box<dyn Stream<Item = Result<()>> + Sync + Send>>,
 }
 
 impl DecompressionStream {
@@ -18,10 +19,15 @@ impl DecompressionStream {
         input: Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>,
         output: impl Write + Send + 'static,
     ) -> Self {
-        let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
+        let (send, mut recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
 
         tokio::task::spawn(Self::process(input.into(), Box::new(output), send));
-        Self { output: recv }
+        let stream_recv = Box::pin(stream! {
+            while let Some(item) = recv.recv().await {
+                yield item;
+            }
+        });
+        Self { output: stream_recv }
     }
 
     async fn process(

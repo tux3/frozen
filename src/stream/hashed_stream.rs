@@ -1,4 +1,5 @@
 use crate::crypto::sha1_string;
+use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
 use futures::task::{Context, Poll};
@@ -8,17 +9,22 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct HashedStream {
-    output: mpsc::Receiver<Result<(Bytes, String)>>,
+    output: Pin<Box<dyn Stream<Item = Result<(Bytes, String)>> + Sync + Send>>,
     stream_lower_bound: usize,
 }
 
 impl HashedStream {
     pub fn new(input: Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>) -> Self {
         let stream_lower_bound = input.size_hint().0;
-        let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
+        let (send, mut recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
         tokio::task::spawn(Self::process(input.into(), send));
+        let stream_recv = Box::pin(stream! {
+            while let Some(item) = recv.recv().await {
+                yield item;
+            }
+        });
         Self {
-            output: recv,
+            output: stream_recv,
             stream_lower_bound,
         }
     }

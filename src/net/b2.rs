@@ -16,7 +16,6 @@ use std::path::Path;
 use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio_compat_02::FutureExt;
 
 #[derive(Copy, Clone)]
 pub enum FileListDepth {
@@ -108,7 +107,7 @@ impl B2 {
             }
 
             let req = req_builder();
-            let res = match self.client.request(req).compat().await {
+            let res = match self.client.request(req).await {
                 Ok(res) => res,
                 Err(e) => {
                     let err_str = format!("Unexpected request failure: {}", e);
@@ -154,7 +153,7 @@ impl B2 {
             .body(Body::empty())
             .unwrap();
 
-        let res = client.request(req).compat().await?;
+        let res = client.request(req).await?;
         let status = res.status();
         let body = hyper::body::to_bytes(res.into_body()).await?;
 

@@ -99,7 +99,7 @@ impl FileDiffStream {
         enum LocalFilesEnum<F: FnMut((String, LocalFile)) -> FileDiff> {
             HashMap(HashMap<String, LocalFile>),
             RemainingIter(std::iter::Map<IntoIter<String, LocalFile>, F>),
-        };
+        }
         let mut local_files_enum = LocalFilesEnum::HashMap(local_files);
         let mut remote_files_iter = remote_files.into_iter();
 

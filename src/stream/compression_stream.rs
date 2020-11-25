@@ -1,4 +1,5 @@
 use crate::stream::STREAMS_CHUNK_SIZE;
+use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
 use futures::task::{Context, Poll};
@@ -9,18 +10,23 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::block_in_place;
 
 pub struct CompressionStream {
-    output: mpsc::Receiver<Result<Bytes>>,
+    output: Pin<Box<dyn Stream<Item = Result<Bytes>> + Sync + Send>>,
     stream_lower_bound: usize,
 }
 
 impl CompressionStream {
     pub async fn new(input: impl Read + Send + 'static, compress_level: i32) -> Self {
-        let (send, recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
+        let (send, mut recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
         let (lower_bound_send, lower_bound_recv) = oneshot::channel();
 
         tokio::task::spawn(Self::process(Box::new(input), compress_level, send, lower_bound_send));
+        let stream_recv = Box::pin(stream! {
+            while let Some(item) = recv.recv().await {
+                yield item;
+            }
+        });
         Self {
-            output: recv,
+            output: stream_recv,
             stream_lower_bound: lower_bound_recv.await.unwrap(),
         }
     }
