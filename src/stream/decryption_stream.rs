@@ -1,5 +1,5 @@
 use crate::crypto::{open_secretstream, Key};
-use crate::stream::next_stream_bytes_chunked;
+use crate::stream::{next_stream_bytes_chunked, AsyncStreamBox};
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::{eyre, Result};
@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct DecryptionStream {
-    output: Pin<Box<dyn Stream<Item = Result<Bytes>> + Sync + Send>>,
+    output: AsyncStreamBox<Bytes>,
 }
 
 impl DecryptionStream {

@@ -1,5 +1,5 @@
 use crate::crypto::{create_secretstream, Key};
-use crate::stream::{next_stream_bytes_chunked, STREAMS_CHUNK_SIZE};
+use crate::stream::{next_stream_bytes_chunked, AsyncStreamBox, STREAMS_CHUNK_SIZE};
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::{eyre, Result};
@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct EncryptionStream {
-    output: Pin<Box<dyn Stream<Item = Result<Bytes>> + Sync + Send>>,
+    output: AsyncStreamBox<Bytes>,
     stream_lower_bound: usize,
 }
 

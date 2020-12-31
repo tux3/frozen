@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
-fn remove_relative_components(path: &Path) -> Result<PathBuf> {
+fn remove_relative_components(path: &Path) -> PathBuf {
     let mut components = Vec::new();
     let mut skip = 0;
     let comp_iter = path.components().filter(|comp| !matches!(comp, Component::CurDir));
@@ -21,23 +21,23 @@ fn remove_relative_components(path: &Path) -> Result<PathBuf> {
         }
     }
 
-    Ok(components.iter().rev().collect::<PathBuf>())
+    components.iter().rev().collect::<PathBuf>()
 }
 
 /// Makes a path absolute, removes '.' and '..' elements, but preserves symlinks
 /// The current working directory is taken to be `base_path`
-fn to_semi_canonical_path_from(path: &Path, base_path: &Path) -> Result<PathBuf> {
-    let path = remove_relative_components(&path)?;
+fn to_semi_canonical_path_from(path: &Path, base_path: &Path) -> PathBuf {
+    let path = remove_relative_components(&path);
     if path.is_absolute() {
-        return Ok(path);
+        return path;
     }
 
-    Ok(base_path.join(path))
+    base_path.join(path)
 }
 
 /// Makes a path absolute, removes '.' and '..' elements, but preserves symlinks
 pub fn to_semi_canonical_path(path: &Path) -> Result<PathBuf> {
-    to_semi_canonical_path_from(path, &std::env::current_dir()?)
+    Ok(to_semi_canonical_path_from(path, &std::env::current_dir()?))
 }
 
 /// Makes an absolute semi-canonical path from a command line argument
@@ -86,7 +86,7 @@ mod tests {
         ];
 
         for (relative, absolute) in tests_paths.iter() {
-            let result_path = to_semi_canonical_path_from(&Path::new(relative), base_path)?;
+            let result_path = to_semi_canonical_path_from(&Path::new(relative), base_path);
             assert_eq!(result_path.to_string_lossy(), *absolute);
         }
         Ok(())

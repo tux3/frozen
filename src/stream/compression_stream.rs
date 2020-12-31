@@ -1,4 +1,4 @@
-use crate::stream::STREAMS_CHUNK_SIZE;
+use crate::stream::{AsyncStreamBox, STREAMS_CHUNK_SIZE};
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::block_in_place;
 
 pub struct CompressionStream {
-    output: Pin<Box<dyn Stream<Item = Result<Bytes>> + Sync + Send>>,
+    output: AsyncStreamBox<Bytes>,
     stream_lower_bound: usize,
 }
 

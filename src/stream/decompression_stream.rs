@@ -1,4 +1,4 @@
-use crate::stream::next_stream_bytes;
+use crate::stream::{next_stream_bytes, AsyncStreamBox};
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
@@ -11,7 +11,7 @@ use tokio::task::block_in_place;
 
 /// This "stream" takes a compressed input stream, but writes its output directly to an impl Write
 pub struct DecompressionStream {
-    output: Pin<Box<dyn Stream<Item = Result<()>> + Sync + Send>>,
+    output: AsyncStreamBox<()>,
 }
 
 impl DecompressionStream {

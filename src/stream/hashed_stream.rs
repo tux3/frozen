@@ -1,4 +1,5 @@
 use crate::crypto::sha1_string;
+use crate::stream::AsyncStreamBox;
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::Result;
@@ -9,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 pub struct HashedStream {
-    output: Pin<Box<dyn Stream<Item = Result<(Bytes, String)>> + Sync + Send>>,
+    output: AsyncStreamBox<(Bytes, String)>,
     stream_lower_bound: usize,
 }
 

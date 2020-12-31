@@ -26,6 +26,8 @@ pub const STREAMS_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 /// Max pending chunks that a stream will buffer
 pub const CHUNK_BUFFER_COUNT: usize = 1;
 
+type AsyncStreamBox<T> = Pin<Box<dyn Stream<Item = Result<T>> + Sync + Send>>;
+
 /// This returns the next buffer from the stream, or None. Reports errors to the sender.
 async fn next_stream_bytes<T>(
     input_stream: &mut Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>,
