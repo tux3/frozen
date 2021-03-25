@@ -243,13 +243,13 @@ impl DirStat {
         let dirnames_data_size = leb128::read::unsigned(&mut dirnames_data)? as usize;
         let mut dirnames_reader = Decoder::new(dirnames_data)?;
 
-        let subdirs_data = &dirnames_data[dirnames_data_size..];
+        let mut subdirs_data = &dirnames_data[dirnames_data_size..];
         let mut path_hash_str = String::new();
         Self::subdirs_from_bytes(
             Some(&PathBuf::new()),
             &mut path_hash_str,
             key,
-            &mut &subdirs_data[..],
+            &mut subdirs_data,
             &mut files_count_stream,
             &mut subdirs_count_stream,
             &mut dirname_count_stream,
