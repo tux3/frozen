@@ -10,7 +10,7 @@ serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.4", features = ["macros", "rt-multi-thread", "signal", "sync"] }
 tokio-stream = "0.1"
 async-stream = "0.3"
-zstd = { version = "0.6", features = ["tokio"] }
+zstd = { version = "0.9" }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "stream", "runtime"] }
 hyper-tls = "0.5"
 futures = "0.3"
@@ -32,7 +32,7 @@ owning_ref = "0.4"
 hashbrown = "0.11"
 futures-intrusive = "0.4"
 crossbeam = "0.8"
-indicatif = "0.15"
+indicatif = "0.16"
 tempfile = "3"
 eyre = "0.6"
 

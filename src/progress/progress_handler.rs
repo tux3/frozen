@@ -34,7 +34,7 @@ impl ProgressHandler {
         self.progress_bar.println("Error: ".to_string() + msg.as_ref());
     }
 
-    pub fn println(&self, msg: impl Into<String>) {
+    pub fn println(&self, msg: impl AsRef<str>) {
         self.progress_bar.println(msg);
     }
 
