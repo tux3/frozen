@@ -11,7 +11,8 @@ pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<(
     let b2 = B2::authenticate(config, &keys).await?;
 
     println!("Downloading backup metadata");
-    let roots = root::fetch_roots(&b2).await?;
+    let mut roots = root::fetch_roots(&b2).await?;
+    roots.sort_by(|a, b| a.path.cmp(&b.path));
 
     println!("Backed-up folders:");
     for root in roots {
