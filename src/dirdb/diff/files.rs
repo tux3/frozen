@@ -75,7 +75,7 @@ impl FileDiffStream {
     ) -> Self {
         let mut local_files = HashMap::new();
         let mut dir_path_hash = root.path_hash.clone() + &prefix;
-        Self::flatten_dirstat_files(&mut local_files, &dir_stat, &mut dir_path_hash, &key);
+        Self::flatten_dirstat_files(&mut local_files, &dir_stat, &mut dir_path_hash, key);
 
         let diff_iter = local_files.into_iter().map(|(_, lfile)| {
             Ok(FileDiff {

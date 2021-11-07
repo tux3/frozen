@@ -27,7 +27,7 @@ fn remove_relative_components(path: &Path) -> PathBuf {
 /// Makes a path absolute, removes '.' and '..' elements, but preserves symlinks
 /// The current working directory is taken to be `base_path`
 fn to_semi_canonical_path_from(path: &Path, base_path: &Path) -> PathBuf {
-    let path = remove_relative_components(&path);
+    let path = remove_relative_components(path);
     if path.is_absolute() {
         return path;
     }
@@ -86,7 +86,7 @@ mod tests {
         ];
 
         for (relative, absolute) in tests_paths.iter() {
-            let result_path = to_semi_canonical_path_from(&Path::new(relative), base_path);
+            let result_path = to_semi_canonical_path_from(Path::new(relative), base_path);
             assert_eq!(result_path.to_string_lossy(), *absolute);
         }
         Ok(())

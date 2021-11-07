@@ -91,7 +91,7 @@ pub async fn backup_one_root(
     let mut num_cleanup_actions = 0;
     let mut num_upload_actions = 0;
     let mut num_delete_actions = 0;
-    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
+    let rate_limiter = Arc::new(RateLimiter::new(config, &b2));
     let keep_existing = args.is_present("keep-existing");
     while let Some(item) = dir_diff.next().await {
         let item = item?;

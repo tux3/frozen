@@ -168,7 +168,7 @@ impl B2 {
         if !status.is_success() {
             let mut err_msg = "Backblaze B2 login failure: ".to_string() + from_utf8(&body).unwrap();
             if let Value::String(ref reply_err_msg) = reply_json["message"] {
-                err_msg += &(String::from(": ") + &reply_err_msg);
+                err_msg += &(String::from(": ") + reply_err_msg);
             }
             bail!(err_msg);
         }
@@ -584,7 +584,7 @@ impl B2 {
         file_id: &str,
         data_stream: impl Stream<Item = Result<Bytes>> + Unpin + Send + Sync + 'static,
     ) -> Result<RemoteFileVersion> {
-        let b2upload = self.get_upload_part_url(&file_id).await?;
+        let b2upload = self.get_upload_part_url(file_id).await?;
         let mut part_hashes = Vec::<String>::new();
 
         let hashed_stream = HashedStream::new(Box::new(data_stream));
@@ -598,7 +598,7 @@ impl B2 {
             part_hashes.push(part_hash);
         }
 
-        self.finish_large_file(&file_id, &part_hashes).await
+        self.finish_large_file(file_id, &part_hashes).await
     }
 
     async fn upload_part(

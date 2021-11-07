@@ -70,7 +70,7 @@ pub async fn restore_one_root(config: &Config, target: PathBuf, mut b2: B2, root
     let action_futs = FuturesUnordered::new();
 
     let mut num_download_actions = 0;
-    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
+    let rate_limiter = Arc::new(RateLimiter::new(config, &b2));
     while let Some(item) = dir_diff.next().await {
         let item = item?;
 

@@ -57,7 +57,7 @@ async fn delete_one_root(
     let dirdb_versions = b2.list_remote_file_versions(&dirdb_path).await?;
     println!("Deleting {} versions of the DirDB", dirdb_versions.len());
     for dirdb_version in dirdb_versions.iter().rev() {
-        b2.delete_file_version(&dirdb_version).await?;
+        b2.delete_file_version(dirdb_version).await?;
     }
 
     let progress = Progress::new(config.verbose);
@@ -67,7 +67,7 @@ async fn delete_one_root(
     // Lets us wait for all backup actions to complete
     let action_futs = FuturesUnordered::new();
 
-    let rate_limiter = Arc::new(RateLimiter::new(&config, &b2));
+    let rate_limiter = Arc::new(RateLimiter::new(config, b2));
     for rfile in rfiles {
         action_futs.spawn(action::delete(rate_limiter.clone(), delete_progress.clone(), rfile))?;
     }
@@ -76,7 +76,7 @@ async fn delete_one_root(
     progress.join();
 
     println!("Deleting backup root");
-    root::delete_root(b2, roots, &path).await?;
+    root::delete_root(b2, roots, path).await?;
 
     if !progress.is_complete() {
         bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())

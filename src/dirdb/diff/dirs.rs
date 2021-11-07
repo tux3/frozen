@@ -36,7 +36,7 @@ fn optimized_diff_tree(local: ArcRef<DirDB, DirStat>, remote: &DirStat) -> Optio
         });
     }
 
-    let tree = DiffTree::new(&mut prefix_path_hash, &local, &remote);
+    let tree = DiffTree::new(&mut prefix_path_hash, &local, remote);
     tree.map(|mut tree| {
         tree.optimize();
         tree
@@ -50,7 +50,7 @@ pub fn diff_dirs(
     remote: &DirStat,
 ) -> SelectAll<FileDiffStream> {
     let mut diff_streams = SelectAll::new();
-    let diff_tree = match optimized_diff_tree(local, &remote) {
+    let diff_tree = match optimized_diff_tree(local, remote) {
         None => return diff_streams, // If nothing changed, we can take the fast way out
         Some(t) => t,
     };

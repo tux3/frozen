@@ -40,7 +40,7 @@ impl DirStat {
             hasher.update(path_to_bytes(&rel_path).unwrap());
             let is_symlink = entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false);
             if path.is_dir() && !is_symlink {
-                let subfolder = DirStat::new(&base_path, &path)?;
+                let subfolder = DirStat::new(base_path, &path)?;
                 total_files_count += subfolder.total_files_count;
                 hasher.update(&subfolder.content_hash);
                 subfolders.push(subfolder);
@@ -74,7 +74,7 @@ impl DirStat {
             path_hash_str.truncate(cur_path_hash_str_len);
             crypto::hash_path_dir_into(
                 path_hash_str,
-                &subfolder.dir_name.as_ref().unwrap(),
+                subfolder.dir_name.as_ref().unwrap(),
                 key,
                 &mut subfolder.dir_name_hash,
             );

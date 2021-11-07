@@ -163,7 +163,7 @@ pub async fn wipe_locks<'a>(b2: &'a mut b2::B2, roots: &'a [BackupRoot], path: &
 
         println!("{} lock files to remove", locks.len());
         for lock_version in &locks {
-            b2.delete_file_version(&lock_version).await?;
+            b2.delete_file_version(lock_version).await?;
         }
         Ok(())
     } else {

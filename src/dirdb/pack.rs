@@ -204,7 +204,7 @@ impl DirStat {
             }
             Some(dir_name) => {
                 let mut sub_path = path.to_owned();
-                let subdir_name: &Path = path_from_bytes(&dir_name).unwrap();
+                let subdir_name: &Path = path_from_bytes(dir_name).unwrap();
                 sub_path.push(subdir_name);
                 Some(sub_path)
             }
@@ -259,7 +259,7 @@ impl DirStat {
 
     fn serialize_dirnames<W: Write>(info: &PackingInfo, writer: &mut W) -> Result<()> {
         if let Some(dir_name) = info.dir_name {
-            writer.write_all(&dir_name)?;
+            writer.write_all(dir_name)?;
         }
 
         for subfolder in info.subfolders.iter() {
@@ -306,7 +306,7 @@ impl DirStat {
     /// This kind of error is best handled by giving up, the user's machine ain't working today.
     pub fn serialize_into<W: Write>(&self, writer: &mut W) -> Result<()> {
         let packing_info = dirnames_packing_info(self)?;
-        let encoding_settings = best_encoding_settings(&self, &packing_info);
+        let encoding_settings = best_encoding_settings(self, &packing_info);
 
         {
             let mut file_count_bitstream_writer = BitstreamWriter::new(writer, encoding_settings.file_counts);

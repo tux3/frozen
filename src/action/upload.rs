@@ -68,7 +68,7 @@ pub async fn upload(
     let encrypted_stream = EncryptionStream::new(compressed_stream, &b2.key);
 
     let filehash = &file.full_path_hash;
-    let enc_meta = crypto::encode_meta(&b2.key, &rel_path, file.last_modified, file.mode, is_symlink);
+    let enc_meta = crypto::encode_meta(&b2.key, rel_path, file.last_modified, file.mode, is_symlink);
 
     let err = b2
         .upload_file_stream(upload_url, filehash, encrypted_stream, Some(enc_meta))
