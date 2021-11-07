@@ -101,23 +101,13 @@ async fn save_file(
             }
             Ok(tempfile) => tempfile,
         };
-        if tempfile
-            .as_file()
-            .set_permissions(Permissions::from_mode(file.mode))
-            .is_err()
-        {
-            progress.report_error(&format!(
-                "Failed to set permissions of temp file for \"{}\"",
-                file.rel_path.display()
-            ));
-            return Err(());
-        }
         let fd = match tempfile.reopen() {
             Ok(x) => x,
-            Err(_) => {
+            Err(err) => {
                 progress.report_error(&format!(
-                    "Failed to reopen temp file for \"{}\"",
-                    file.rel_path.display()
+                    "Failed to reopen temp file for \"{}\": {}",
+                    file.rel_path.display(),
+                    err
                 ));
                 return Err(());
             }
@@ -135,13 +125,25 @@ async fn save_file(
                 return Err(());
             }
         }
-        if let Err(err) = tempfile.persist(save_path) {
+        let final_file = match tempfile.persist(&save_path) {
+            Err(err) => {
+                progress.report_error(&format!(
+                    "Failed to save \"{}\": {}",
+                    file.rel_path.display(),
+                    err.error
+                ));
+                drop(decompressed_stream);
+                return Err(());
+            }
+            Ok(f) => f,
+        };
+        if let Err(err) = final_file.set_permissions(Permissions::from_mode(file.mode)) {
             progress.report_error(&format!(
-                "Failed to save \"{}\": {}",
+                "Failed to set permissions of file \"{}\": {}",
                 file.rel_path.display(),
-                err.error
+                err
             ));
-            drop(decompressed_stream);
+            let _ = std::fs::remove_file(&save_path);
             return Err(());
         }
     }
