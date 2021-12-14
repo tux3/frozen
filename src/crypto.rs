@@ -1,7 +1,8 @@
 use bincode::{deserialize, serialize};
-use blake2::VarBlake2b;
+use blake2::{Blake2bMac, Digest};
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
-use digest::{Digest, Update, VariableOutput};
+use digest::generic_array::GenericArray;
+use digest::{FixedOutput, Mac, Update};
 use eyre::{bail, eyre, Result};
 use sha1::Sha1;
 use sodiumoxide::crypto::secretstream::{Header, Pull, Push, Stream as SecretStream};
@@ -13,8 +14,11 @@ use std::vec::Vec;
 pub use sodiumoxide::crypto::secretbox::Key;
 pub use sodiumoxide::crypto::secretstream::Key as SecretStreamKey;
 
+// TODO: Whenever the digest lib offers const generics we can remove these typenums...
 const DIRNAME_PATH_HASH_LEN: usize = 8;
-const FILENAME_PATH_HASH_LEN: usize = 12;
+//const FILENAME_PATH_HASH_LEN: usize = 12;
+type DirnamePathHashLenTypenum = digest::consts::U8;
+type FilenamePathHashLenTypenum = digest::consts::U12;
 
 pub struct AppKeys {
     pub b2_key_id: String,
@@ -96,25 +100,25 @@ pub fn hash_path_dir_into(
     out: &mut [u8; DIRNAME_PATH_HASH_LEN],
 ) {
     let &Key(keydata) = key;
-    let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
-    hasher.update(dir_path_hash.as_bytes());
-    hasher.update(secret_dirname);
-    hasher.finalize_variable(|res| out.copy_from_slice(res));
+    let mut hasher = Blake2bMac::<DirnamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
+    Mac::update(&mut hasher, dir_path_hash.as_bytes());
+    Mac::update(&mut hasher, secret_dirname);
+    hasher.finalize_into(GenericArray::from_mut_slice(out));
 }
 
 pub fn hash_path_filename_into(parent_hash: &[u8], secret_filename: &[u8], key: &Key, out: &mut String) {
     let &Key(keydata) = key;
-    let mut hasher = VarBlake2b::new_keyed(&keydata, FILENAME_PATH_HASH_LEN);
-    hasher.update(parent_hash);
-    hasher.update(secret_filename);
-    base64::encode_config_buf(&hasher.finalize_boxed(), base64::URL_SAFE_NO_PAD, out);
+    let mut hasher = Blake2bMac::<FilenamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
+    Mac::update(&mut hasher, parent_hash);
+    Mac::update(&mut hasher, secret_filename);
+    base64::encode_config_buf(&hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD, out);
 }
 
 pub fn hash_path_root(secret_root_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
-    let mut hasher = VarBlake2b::new_keyed(&keydata, DIRNAME_PATH_HASH_LEN);
-    hasher.update(serialize(secret_root_path).unwrap());
-    base64::encode_config(&hasher.finalize_boxed(), base64::URL_SAFE_NO_PAD)
+    let mut hasher = Blake2bMac::<DirnamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
+    Mac::update(&mut hasher, &serialize(secret_root_path).unwrap());
+    base64::encode_config(&hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD)
 }
 
 pub fn sha1_string(data: &[u8]) -> String {

@@ -1,8 +1,8 @@
 use super::FileStat;
 use crate::crypto::{self, Key};
 use crate::data::paths::path_to_bytes;
-use blake2::digest::{Update, VariableOutput};
-use blake2::VarBlake2b;
+use blake2::{Blake2b, Digest};
+use digest::generic_array::GenericArray;
 use eyre::Result;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -26,7 +26,7 @@ pub struct DirStat {
 impl DirStat {
     /// Creates a DirStat, but does not compute dir_name_hash
     pub(super) fn new(base_path: &Path, dir_path: &Path) -> Result<Self> {
-        let mut hasher = VarBlake2b::new(8)?;
+        let mut hasher = Blake2b::<digest::consts::U8>::new();
         let mut total_files_count = 0;
         let mut direct_files = Vec::new();
         let mut subfolders = Vec::new();
@@ -64,7 +64,7 @@ impl DirStat {
             dir_name: Some(dir_name.to_owned()),
             ..Default::default()
         };
-        hasher.finalize_variable(|hash| result.content_hash.copy_from_slice(hash));
+        hasher.finalize_into(GenericArray::from_mut_slice(&mut result.content_hash));
         Ok(result)
     }
 
