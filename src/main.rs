@@ -1,5 +1,5 @@
 use crate::config::Config;
-use clap::{App, Arg, SubCommand};
+use clap::{arg, App, AppSettings};
 use eyre::{Result, WrapErr};
 use std::process::exit;
 
@@ -22,97 +22,53 @@ mod test_helpers;
 async fn async_main() -> Result<()> {
     let args = App::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
-        .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .long("verbose")
-                .help("Log every file transferred"),
-        )
-        .subcommand(SubCommand::with_name("list").about("List the currently backup up folders"))
+        .arg(arg!(-v --verbose "Log every file transferred"))
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(App::new("list").about("List the currently backup up folders"))
         .subcommand(
-            SubCommand::with_name("backup")
+            App::new("backup")
                 .about("Backup a folder, encrypted and compressed, to the cloud")
-                .arg(
-                    Arg::with_name("keep-existing")
-                        .short("k")
-                        .help("Keep remote files that have been deleted locally"),
-                )
-                .arg(
-                    Arg::with_name("source")
-                        .help("The source folder to backup")
-                        .required(true)
-                        .index(1),
-                )
-                .arg(
-                    Arg::with_name("destination")
-                        .help("Save the back up under a different path")
-                        .index(2),
-                ),
+                .arg(arg!(-k --"keep-existing" "Keep remote files that have been deleted locally"))
+                .arg(arg!(<source> "The source folder to backup").allow_invalid_utf8(true))
+                .arg(arg!([destination] "Save the back up under a different path").allow_invalid_utf8(true)),
         )
         .subcommand(
-            SubCommand::with_name("restore")
+            App::new("restore")
                 .about("Restore a backed up folder")
-                .arg(
-                    Arg::with_name("source")
-                        .help("The backed up folder to restore")
-                        .required(true)
-                        .index(1),
-                )
-                .arg(
-                    Arg::with_name("destination")
-                        .help("Path to save the downloaded folder")
-                        .index(2),
-                ),
+                .arg(arg!(<source> "The backed up folder to restore").allow_invalid_utf8(true))
+                .arg(arg!([destination] "Path to save the downloaded folder").allow_invalid_utf8(true)),
         )
         .subcommand(
-            SubCommand::with_name("delete").about("Delete a backed up folder").arg(
-                Arg::with_name("target")
-                    .help("The backed up folder to delete")
-                    .required(true)
-                    .index(1),
-            ),
+            App::new("delete")
+                .about("Delete a backed up folder")
+                .arg(arg!(<target> "The backed up folder to delete").allow_invalid_utf8(true)),
         )
         .subcommand(
-            SubCommand::with_name("unlock")
+            App::new("unlock")
                 .about("Force unlocking a folder after an interrupted backup. Dangerous.")
-                .arg(
-                    Arg::with_name("target")
-                        .help("The backed up folder to forcibly unlock")
-                        .required(true)
-                        .index(1),
-                ),
+                .arg(arg!(<target> "The backed up folder to forcibly unlock").allow_invalid_utf8(true)),
         )
         .subcommand(
-            SubCommand::with_name("save-key")
+            App::new("save-key")
                 .about("Saves a keyfile on this computer that will be used instead of your backup password."),
         )
         .subcommand(
-            SubCommand::with_name("rename")
+            App::new("rename")
                 .about("Rename a backed-up folder on the server.")
-                .arg(
-                    Arg::with_name("source")
-                        .help("Source path of the folder to rename")
-                        .required(true)
-                        .index(1),
-                )
-                .arg(
-                    Arg::with_name("target")
-                        .help("New path of the backup")
-                        .required(true)
-                        .index(2),
-                ),
+                .arg(arg!(<source> "Source path of the folder to rename").allow_invalid_utf8(true))
+                .arg(arg!(<target> "New path of the backup").allow_invalid_utf8(true)),
         )
         .get_matches();
 
     let config = Config::get_or_create(args.is_present("verbose"));
-    match args.subcommand() {
-        ("backup", Some(sub_args)) => cmd::backup(&config, sub_args).await,
-        ("restore", Some(sub_args)) => cmd::restore(&config, sub_args).await,
-        ("delete", Some(sub_args)) => cmd::delete(&config, sub_args).await,
-        ("unlock", Some(sub_args)) => cmd::unlock(&config, sub_args).await,
-        ("list", Some(sub_args)) => cmd::list(&config, sub_args).await,
-        ("rename", Some(sub_args)) => cmd::rename(&config, sub_args).await,
-        ("save-key", Some(sub_args)) => cmd::save_key(&config, sub_args).await,
+    match args.subcommand().unwrap() {
+        ("backup", sub_args) => cmd::backup(&config, sub_args).await,
+        ("restore", sub_args) => cmd::restore(&config, sub_args).await,
+        ("delete", sub_args) => cmd::delete(&config, sub_args).await,
+        ("unlock", sub_args) => cmd::unlock(&config, sub_args).await,
+        ("list", sub_args) => cmd::list(&config, sub_args).await,
+        ("rename", sub_args) => cmd::rename(&config, sub_args).await,
+        ("save-key", sub_args) => cmd::save_key(&config, sub_args).await,
         _ => unreachable!(),
     }
     .wrap_err_with(|| format!("\r{} failed", args.subcommand_name().unwrap()))

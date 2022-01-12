@@ -12,7 +12,7 @@ use futures::task::SpawnExt;
 use std::path::Path;
 use std::sync::Arc;
 
-pub async fn delete(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
+pub async fn delete(config: &Config, args: &ArgMatches) -> Result<()> {
     let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 

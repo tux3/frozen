@@ -4,7 +4,7 @@ use crate::net::b2::B2;
 use clap::ArgMatches;
 use eyre::{bail, Result};
 
-pub async fn rename<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<()> {
+pub async fn rename(config: &Config, args: &ArgMatches) -> Result<()> {
     let src_path = path_from_arg(args, "source")?;
     let target_path = path_from_arg(args, "target")?;
 

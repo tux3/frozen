@@ -4,7 +4,7 @@ use crate::net::b2::B2;
 use clap::ArgMatches;
 use eyre::Result;
 
-pub async fn list<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<()> {
+pub async fn list(config: &Config, _args: &ArgMatches) -> Result<()> {
     let keys = config.get_app_keys()?;
 
     println!("Connecting to Backblaze B2");

@@ -41,7 +41,7 @@ pub fn to_semi_canonical_path(path: &Path) -> Result<PathBuf> {
 }
 
 /// Makes an absolute semi-canonical path from a command line argument
-pub fn path_from_arg(args: &ArgMatches<'_>, name: &str) -> Result<PathBuf> {
+pub fn path_from_arg(args: &ArgMatches, name: &str) -> Result<PathBuf> {
     match args.value_of_os(name) {
         Some(raw_path) => to_semi_canonical_path(Path::new(raw_path)),
         _ => Err(eyre!("Missing required argument \"{}\"", name)),

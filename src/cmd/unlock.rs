@@ -4,7 +4,7 @@ use crate::net::b2::B2;
 use clap::ArgMatches;
 use eyre::Result;
 
-pub async fn unlock<'a>(config: &'a Config, args: &'a ArgMatches<'a>) -> Result<()> {
+pub async fn unlock(config: &Config, args: &ArgMatches) -> Result<()> {
     let path = path_from_arg(args, "target")?;
     let keys = config.get_app_keys()?;
 

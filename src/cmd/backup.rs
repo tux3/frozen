@@ -14,7 +14,7 @@ use futures::task::SpawnExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
+pub async fn backup(config: &Config, args: &ArgMatches) -> Result<()> {
     let path = path_from_arg(args, "source")?;
     if !path.is_dir() {
         bail!("{} is not a folder!", &path.display());
@@ -39,7 +39,7 @@ pub async fn backup(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
 
 pub async fn backup_one_root(
     config: &Config,
-    args: &ArgMatches<'_>,
+    args: &ArgMatches,
     path: PathBuf,
     mut b2: b2::B2,
     root: Arc<BackupRoot>,

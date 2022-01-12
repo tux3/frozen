@@ -2,7 +2,7 @@ use crate::config::Config;
 use clap::ArgMatches;
 use eyre::{ensure, Result};
 
-pub async fn save_key<'a>(config: &'a Config, _args: &'a ArgMatches<'a>) -> Result<()> {
+pub async fn save_key(config: &Config, _args: &ArgMatches) -> Result<()> {
     ensure!(
         !Config::has_keyfile(),
         "A keyfile already exists! If you want to regenerate the keyfile, please delete it first.",

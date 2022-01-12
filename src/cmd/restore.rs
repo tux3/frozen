@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
 
-pub async fn restore(config: &Config, args: &ArgMatches<'_>) -> Result<()> {
+pub async fn restore(config: &Config, args: &ArgMatches) -> Result<()> {
     let path = path_from_arg(args, "source")?;
     let target = path_from_arg(args, "destination").unwrap_or_else(|_| path.clone());
     fs::create_dir_all(&target)?;
