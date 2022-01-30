@@ -8,9 +8,8 @@ publish = false
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.4", features = ["macros", "rt-multi-thread", "signal", "sync"] }
-tokio-stream = "0.1"
 async-stream = "0.3"
-zstd = { version = "0.9" }
+zstd = { version = "0.10" }
 hyper = { version = "0.14", features = ["client", "http1", "http2", "stream", "runtime"] }
 hyper-tls = "0.5"
 futures = "0.3"
@@ -29,7 +28,7 @@ num_cpus = "1.10"
 clap = "3"
 leb128 = "0.2"
 owning_ref = "0.4"
-hashbrown = "0.11"
+hashbrown = "0.12"
 futures-intrusive = "0.4"
 crossbeam = "0.8"
 indicatif = "0.16"

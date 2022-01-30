@@ -140,11 +140,11 @@ impl FileDiffStream {
     fn flatten_dirstat_files_shallow(
         files: &mut HashMap<String, LocalFile>,
         dirstat: &DirStat,
-        dir_path_hash: &mut String,
+        dir_path_hash: &str,
         key: &crypto::Key,
     ) {
         for filestat in dirstat.direct_files.as_ref().unwrap() {
-            let mut full_path_hash = dir_path_hash.clone();
+            let mut full_path_hash = dir_path_hash.to_owned();
             crypto::hash_path_filename_into(
                 dir_path_hash.as_bytes(),
                 filename_to_bytes(&filestat.rel_path).unwrap(),
@@ -201,7 +201,7 @@ impl FileDiffStream {
                     if let FileListDepth::Deep = depth {
                         Self::flatten_dirstat_files(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
                     } else {
-                        Self::flatten_dirstat_files_shallow(&mut local_files, local_dir_stat, &mut dir_path_hash, &key);
+                        Self::flatten_dirstat_files_shallow(&mut local_files, local_dir_stat, &dir_path_hash, &key);
                     }
                 }
 
