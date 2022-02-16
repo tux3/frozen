@@ -1,5 +1,5 @@
 use crate::config::Config;
-use clap::{arg, App, AppSettings};
+use clap::{arg, Command};
 use eyre::{Result, WrapErr};
 use std::process::exit;
 
@@ -20,40 +20,40 @@ mod test_helpers;
 
 #[tokio::main]
 async fn async_main() -> Result<()> {
-    let args = App::new("Frozen Backup")
+    let args = Command::new("Frozen Backup")
         .about("Encrypted and compressed backups to Backblaze B2")
         .arg(arg!(-v --verbose "Log every file transferred"))
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(App::new("list").about("List the currently backup up folders"))
+        .subcommand_required(true)
+        .subcommand(Command::new("list").about("List the currently backup up folders"))
         .subcommand(
-            App::new("backup")
+            Command::new("backup")
                 .about("Backup a folder, encrypted and compressed, to the cloud")
                 .arg(arg!(-k --"keep-existing" "Keep remote files that have been deleted locally"))
                 .arg(arg!(<source> "The source folder to backup").allow_invalid_utf8(true))
                 .arg(arg!([destination] "Save the back up under a different path").allow_invalid_utf8(true)),
         )
         .subcommand(
-            App::new("restore")
+            Command::new("restore")
                 .about("Restore a backed up folder")
                 .arg(arg!(<source> "The backed up folder to restore").allow_invalid_utf8(true))
                 .arg(arg!([destination] "Path to save the downloaded folder").allow_invalid_utf8(true)),
         )
         .subcommand(
-            App::new("delete")
+            Command::new("delete")
                 .about("Delete a backed up folder")
                 .arg(arg!(<target> "The backed up folder to delete").allow_invalid_utf8(true)),
         )
         .subcommand(
-            App::new("unlock")
+            Command::new("unlock")
                 .about("Force unlocking a folder after an interrupted backup. Dangerous.")
                 .arg(arg!(<target> "The backed up folder to forcibly unlock").allow_invalid_utf8(true)),
         )
         .subcommand(
-            App::new("save-key")
+            Command::new("save-key")
                 .about("Saves a keyfile on this computer that will be used instead of your backup password."),
         )
         .subcommand(
-            App::new("rename")
+            Command::new("rename")
                 .about("Rename a backed-up folder on the server.")
                 .arg(arg!(<source> "Source path of the folder to rename").allow_invalid_utf8(true))
                 .arg(arg!(<target> "New path of the backup").allow_invalid_utf8(true)),
