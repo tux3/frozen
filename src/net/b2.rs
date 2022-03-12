@@ -10,7 +10,7 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
 use reqwest::{tls, Body, Client, ClientBuilder, Response, StatusCode, Url};
-use serde_json::{self, Value};
+use serde_json::{self, json, Value};
 use std::future::Future;
 use std::iter::FromIterator;
 use std::path::Path;
@@ -20,8 +20,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Copy, Clone)]
 pub enum FileListDepth {
-    Shallow, // List only files in the current "folder"
-    Deep,    // List every file recursively
+    Shallow,
+    // List only files in the current "folder"
+    Deep, // List every file recursively
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -195,13 +196,10 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_list_buckets").unwrap())
-                    .body(Body::from(format!(
-                        r#"{{
-                         "bucketName":"{}",
-                         "accountId":"{}"
-                         }}"#,
-                        bucket_name, self.acc_id
-                    )))
+                    .json(&json!({
+                         "bucketName": bucket_name,
+                         "accountId": self.acc_id
+                    }))
                     .send()
                     .await
             })
@@ -220,36 +218,31 @@ impl B2 {
 
     pub async fn list_remote_files(&self, prefix: &str, depth: FileListDepth) -> Result<Vec<RemoteFile>> {
         let delimiter = match depth {
-            FileListDepth::Shallow => r#""/""#,
-            FileListDepth::Deep => "null",
+            FileListDepth::Shallow => Some("/"),
+            FileListDepth::Deep => None,
         };
-        let body_base = format!(
-            "\"bucketId\":\"{}\",\
-             \"maxFileCount\":10000,\
-             \"delimiter\":{},\
-             \"prefix\":\"{}\"",
-            self.bucket_id, delimiter, prefix
-        );
+        let body = json!({
+            "bucketId": self.bucket_id,
+            "maxFileCount": 10000,
+            "delimiter": delimiter,
+            "prefix": prefix,
+        });
         let mut start_filename: Option<String> = None;
         let mut files: Vec<RemoteFile> = Vec::new();
 
         loop {
             let (status, body) = self
                 .request_with_backoff(|| async {
-                    let body = if start_filename.is_some() {
-                        format!(
-                            "{{\"startFileName\":\"{}\",\
-                             {}}}",
-                            start_filename.as_ref().unwrap(),
-                            body_base
-                        )
-                    } else {
-                        format!("{{{}}}", body_base)
-                    };
+                    let mut body = body.clone();
+                    if start_filename.is_some() {
+                        body.as_object_mut()
+                            .unwrap()
+                            .insert("startFileName".into(), start_filename.clone().unwrap().into());
+                    }
 
                     self.client
                         .post(self.api_url.join("b2_list_file_names").unwrap())
-                        .body(Body::from(body))
+                        .json(&body)
                         .send()
                         .await
                 })
@@ -280,33 +273,28 @@ impl B2 {
     }
 
     pub async fn list_remote_file_versions(&self, prefix: &str) -> Result<Vec<RemoteFileVersion>> {
-        let body_base = format!(
-            "\"bucketId\":\"{}\",\
-             \"maxFileCount\":10000,\
-             \"prefix\":\"{}\"",
-            self.bucket_id, prefix
-        );
+        let body = json!({
+            "bucketId": self.bucket_id,
+            "maxFileCount": 10000,
+            "prefix": prefix,
+        });
         let mut start_file_version: Option<RemoteFileVersion> = None;
         let mut files: Vec<RemoteFileVersion> = Vec::new();
 
         loop {
             let (status, body) = self
                 .request_with_backoff(|| async {
-                    let body = if start_file_version.is_some() {
+                    let mut body = body.clone();
+                    if start_file_version.is_some() {
                         let ver = start_file_version.as_ref().unwrap();
-                        format!(
-                            "{{\"startFileName\":\"{}\",\
-                             \"startFileId\":\"{}\",\
-                             {}}}",
-                            ver.path, ver.id, body_base
-                        )
-                    } else {
-                        format!("{{{}}}", body_base)
-                    };
+                        let body_mut = body.as_object_mut().unwrap();
+                        body_mut.insert("startFileName".into(), ver.path.clone().into());
+                        body_mut.insert("startFileId".into(), ver.id.clone().into());
+                    }
 
                     self.client
                         .post(self.api_url.join("b2_list_file_versions").unwrap())
-                        .body(Body::from(body))
+                        .json(&body)
                         .send()
                         .await
                 })
@@ -343,32 +331,25 @@ impl B2 {
     }
 
     pub async fn list_unfinished_large_files(&self, prefix: &str) -> Result<Vec<RemoteFile>> {
-        let body_base = format!(
-            r#""bucketId":"{}",
-             "namePrefix":"{}""#,
-            self.bucket_id, prefix
-        );
+        let body = json!({
+            "bucketId": self.bucket_id,
+            "namePrefix": prefix,
+        });
         let mut start_file_version: Option<String> = None;
         let mut unfinished_files: Vec<RemoteFile> = Vec::new();
 
         loop {
             let (status, body) = self
                 .request_with_backoff(|| async {
-                    let body = if let Some(ref ver) = start_file_version {
-                        format!(
-                            r#"{{
-                                "startFileId":"{}",
-                                {}
-                            }}"#,
-                            ver, body_base
-                        )
-                    } else {
-                        format!("{{{}}}", body_base)
+                    let mut body = body.clone();
+                    if let Some(ver) = start_file_version.as_deref() {
+                        let body_mut = body.as_object_mut().unwrap();
+                        body_mut.insert("startFileId".into(), ver.into());
                     };
 
                     self.client
                         .post(self.api_url.join("b2_list_unfinished_large_files").unwrap())
-                        .body(Body::from(body))
+                        .json(&body)
                         .send()
                         .await
                 })
@@ -404,7 +385,7 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_get_upload_url").unwrap())
-                    .body(Body::from(format!("{{\"bucketId\":\"{}\"}}", self.bucket_id)))
+                    .json(&json!({"bucketId": self.bucket_id}))
                     .send()
                     .await
             })
@@ -423,7 +404,7 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_get_upload_part_url").unwrap())
-                    .body(Body::from(format!(r#"{{"fileId":"{}"}}"#, file_id.to_owned())))
+                    .json(&json!({ "fileId": file_id }))
                     .send()
                     .await
             })
@@ -448,11 +429,10 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_delete_file_version").unwrap())
-                    .body(Body::from(format!(
-                        "{{\"fileId\": \"{}\", \
-                         \"fileName\": \"{}\"}}",
-                        file_version.id, file_version.path
-                    )))
+                    .json(&json!({
+                        "fileId": file_version.id,
+                         "fileName": file_version.path,
+                    }))
                     .send()
                     .await
             })
@@ -616,24 +596,14 @@ impl B2 {
     }
 
     async fn finish_large_file(&self, file_id: &str, part_hashes: &[String]) -> Result<RemoteFileVersion> {
-        let part_hashes_json = part_hashes
-            .iter()
-            .map(|hash| '"'.to_string() + hash + "\"")
-            .collect::<Vec<_>>()
-            .join(",");
-        let body_json = format!(
-            r#"{{
-                "fileId": "{}",
-                "partSha1Array": [{}]
-            }}"#,
-            file_id, part_hashes_json
-        );
-
         let (status, body) = self
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_finish_large_file").unwrap())
-                    .body(Body::from(body_json.clone()))
+                    .json(&json!({
+                        "fileId": file_id,
+                        "partSha1Array": part_hashes,
+                    }))
                     .send()
                     .await
             })
@@ -651,12 +621,7 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_cancel_large_file").unwrap())
-                    .body(Body::from(format!(
-                        r#"{{
-                            "fileId": "{}"
-                        }}"#,
-                        file_id
-                    )))
+                    .json(&json!({ "fileId": file_id }))
                     .send()
                     .await
             })
@@ -671,19 +636,14 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_start_large_file").unwrap())
-                    .body(Body::from(format!(
-                        r#"{{
-                            "bucketId": "{}",
-                            "fileName": "{}",
-                            "contentType": "application/octet-stream",
-                            "fileInfo":{{
-                                "enc_meta": "{}"
-                            }}
-                        }}"#,
-                        self.bucket_id,
-                        filename,
-                        enc_meta.to_owned()
-                    )))
+                    .json(&json!({
+                        "bucketId": self.bucket_id,
+                        "fileName": filename,
+                        "contentType": "application/octet-stream",
+                        "fileInfo": {
+                            "enc_meta": enc_meta
+                        }
+                    }))
                     .send()
                     .await
             })
@@ -753,11 +713,10 @@ impl B2 {
             .request_with_backoff(|| async {
                 self.client
                     .post(self.api_url.join("b2_hide_file").unwrap())
-                    .body(Body::from(format!(
-                        "{{\"bucketId\": \"{}\", \
-                         \"fileName\": \"{}\"}}",
-                        self.bucket_id, file_path_hash
-                    )))
+                    .json(&json!({
+                        "bucketId": self.bucket_id,
+                        "fileName": file_path_hash
+                    }))
                     .send()
                     .await
             })
