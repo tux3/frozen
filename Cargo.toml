@@ -1,6 +1,6 @@
 [package]
 name = "frozen"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["tux3 <barrdetwix@gmail.com>"]
 edition = "2018"
 publish = false
@@ -33,6 +33,7 @@ crossbeam = "0.8"
 indicatif = "0.16"
 tempfile = "3"
 eyre = "0.6"
+fs-set-times = "0.15.0"
 
 [profile.release]
 lto = true

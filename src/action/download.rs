@@ -3,11 +3,14 @@ use crate::net::rate_limiter::RateLimiter;
 use crate::progress::ProgressHandler;
 use crate::stream::{DecompressionStream, DecryptionStream};
 use eyre::WrapErr;
+use fs_set_times::{SetTimes, SystemTimeSpec};
 use futures::StreamExt;
 use std::borrow::Borrow;
 use std::fs::{self, Permissions};
+use std::ops::Add;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 pub async fn download(
     rate_limiter: impl Borrow<RateLimiter>,
@@ -140,6 +143,16 @@ async fn save_file(
         if let Err(err) = final_file.set_permissions(Permissions::from_mode(file.mode)) {
             progress.report_error(&format!(
                 "Failed to set permissions of file \"{}\": {}",
+                file.rel_path.display(),
+                err
+            ));
+            let _ = std::fs::remove_file(&save_path);
+            return Err(());
+        }
+        let mtime = SystemTime::UNIX_EPOCH.add(Duration::from_secs(file.last_modified));
+        if let Err(err) = final_file.set_times(None, Some(SystemTimeSpec::Absolute(mtime))) {
+            progress.report_error(&format!(
+                "Failed to set mtime of file \"{}\": {}",
                 file.rel_path.display(),
                 err
             ));
