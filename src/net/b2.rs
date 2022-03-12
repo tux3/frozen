@@ -6,14 +6,15 @@ use crate::stream::{HashedStream, SimpleBytesStream};
 use bytes::Bytes;
 use data_encoding::BASE64_NOPAD;
 use eyre::{bail, ensure, eyre, Result};
+use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
-use hyper::client::{Client, HttpConnector};
-use hyper::header::{AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE};
-use hyper::{Body, Request, StatusCode};
-use hyper_tls::HttpsConnector;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
+use reqwest::{tls, Body, Client, ClientBuilder, Response, StatusCode, Url};
 use serde_json::{self, Value};
+use std::future::Future;
+use std::iter::FromIterator;
 use std::path::Path;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,30 +30,16 @@ pub struct B2Upload {
     pub auth_token: String,
 }
 
+#[derive(Clone)]
 pub struct B2 {
     pub key: crypto::Key,
     pub bucket_id: String,
     pub acc_id: String,
     pub auth_token: String,
-    pub api_url: String,
-    pub bucket_download_url: String,
-    pub client: Client<HttpsConnector<HttpConnector>>,
+    pub api_url: Url,
+    pub bucket_download_url: Url,
+    pub client: Client,
     pub progress: Option<ProgressHandler>,
-}
-
-impl Clone for B2 {
-    fn clone(&self) -> Self {
-        B2 {
-            key: self.key.clone(),
-            bucket_id: self.bucket_id.clone(),
-            acc_id: self.acc_id.clone(),
-            auth_token: self.auth_token.clone(),
-            api_url: self.api_url.clone(),
-            bucket_download_url: self.bucket_download_url.clone(),
-            client: make_client(),
-            progress: self.progress.clone(),
-        }
-    }
 }
 
 async fn warning(maybe_progress: &Option<ProgressHandler>, msg: &str) {
@@ -76,26 +63,26 @@ fn make_basic_auth(
     "Basic ".to_owned() + &encoded
 }
 
-fn make_client() -> Client<HttpsConnector<HttpConnector>> {
-    let https = HttpsConnector::new();
+fn base_client() -> ClientBuilder {
     Client::builder()
-        .pool_max_idle_per_host(0) // Caused hangs when used with spawn_with_handle...
-        .build::<_, hyper::Body>(https)
+        .https_only(true)
+        .min_tls_version(tls::Version::TLS_1_2)
 }
 
 impl B2 {
-    async fn request_with_backoff<F>(&self, req_builder: F) -> Result<(StatusCode, Bytes)>
+    async fn request_with_backoff<Fn, Fut>(&self, req_fn: Fn) -> Result<(StatusCode, Bytes)>
     where
-        F: FnMut() -> Request<Body>,
+        Fn: FnMut() -> Fut,
+        Fut: Future<Output = Result<Response, reqwest::Error>>,
     {
-        let (status, body) = self.request_stream_with_backoff(req_builder).await?;
-        let body_bytes = hyper::body::to_bytes(body).await?;
-        Ok((status, body_bytes))
+        let (status, response) = self.request_response_with_backoff(req_fn).await?;
+        Ok((status, response.bytes().await?))
     }
 
-    async fn request_stream_with_backoff<F>(&self, mut req_builder: F) -> Result<(StatusCode, Body)>
+    async fn request_response_with_backoff<Fn, Fut>(&self, mut req_fn: Fn) -> Result<(StatusCode, Response)>
     where
-        F: FnMut() -> Request<Body>,
+        Fn: FnMut() -> Fut,
+        Fut: Future<Output = Result<Response, reqwest::Error>>,
     {
         let mut hard_fails = 0u32;
         let mut attempts = 0u32;
@@ -106,8 +93,7 @@ impl B2 {
                 sleep(Duration::from_millis(cooldown));
             }
 
-            let req = req_builder();
-            let res = match self.client.request(req).await {
+            let res = match req_fn().await {
                 Ok(res) => res,
                 Err(e) => {
                     let err_str = format!("Unexpected request failure: {}", e);
@@ -138,24 +124,22 @@ impl B2 {
                 continue;
             }
 
-            return Ok((status, res.into_body()));
+            return Ok((status, res));
         }
     }
 
     pub async fn authenticate(config: &Config, keys: &AppKeys) -> Result<B2> {
-        let client = make_client();
+        let client = base_client().build().expect("Failed to build HTTP client");
         let basic_auth = make_basic_auth(keys);
         let bucket_name = config.bucket_name.to_owned();
 
-        let req = Request::get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
+        let res = client
+            .get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account")
             .header(AUTHORIZATION, basic_auth)
-            .header(CONNECTION, "keep-alive")
-            .body(Body::empty())
-            .unwrap();
-
-        let res = client.request(req).await?;
+            .send()
+            .await?;
         let status = res.status();
-        let body = hyper::body::to_bytes(res.into_body()).await?;
+        let body = res.bytes().await?;
 
         let reply_json: Value = match serde_json::from_slice(&body) {
             Err(_) => bail!(
@@ -173,18 +157,26 @@ impl B2 {
             bail!(err_msg);
         }
 
-        let bucket_download_url = format!(
+        let auth_token = reply_json["authorizationToken"].as_str().unwrap().to_string();
+        let bucket_download_url = Url::from_str(&format!(
             "{}/file/{}/",
             reply_json["downloadUrl"].as_str().unwrap(),
             &config.bucket_name
-        );
+        ))?;
+
+        let headers = HeaderMap::from_iter([(AUTHORIZATION, HeaderValue::from_str(&auth_token)?)]);
+        let client = base_client()
+            .default_headers(headers)
+            .build()
+            .expect("Failed to build HTTP client");
+        let api_url = Url::from_str(reply_json["apiUrl"].as_str().unwrap())?.join("b2api/v2/")?;
 
         let mut b2 = B2 {
             key: keys.encryption_key.clone(),
             acc_id: reply_json["accountId"].as_str().unwrap().to_string(),
-            auth_token: reply_json["authorizationToken"].as_str().unwrap().to_string(),
+            auth_token,
             bucket_id: String::new(),
-            api_url: reply_json["apiUrl"].as_str().unwrap().to_string(),
+            api_url,
             bucket_download_url,
             progress: None,
             client,
@@ -200,12 +192,9 @@ impl B2 {
         let bucket_name = bucket_name.to_owned(); // Can't wait for the Pin API!
 
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::builder()
-                    .uri(self.api_url.clone() + "/b2api/v2/b2_list_buckets")
-                    .method("POST")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_list_buckets").unwrap())
                     .body(Body::from(format!(
                         r#"{{
                          "bucketName":"{}",
@@ -213,7 +202,8 @@ impl B2 {
                          }}"#,
                         bucket_name, self.acc_id
                     )))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -229,8 +219,6 @@ impl B2 {
     }
 
     pub async fn list_remote_files(&self, prefix: &str, depth: FileListDepth) -> Result<Vec<RemoteFile>> {
-        let url = self.api_url.clone() + "/b2api/v2/b2_list_file_names";
-
         let delimiter = match depth {
             FileListDepth::Shallow => r#""/""#,
             FileListDepth::Deep => "null",
@@ -247,7 +235,7 @@ impl B2 {
 
         loop {
             let (status, body) = self
-                .request_with_backoff(|| {
+                .request_with_backoff(|| async {
                     let body = if start_filename.is_some() {
                         format!(
                             "{{\"startFileName\":\"{}\",\
@@ -259,11 +247,11 @@ impl B2 {
                         format!("{{{}}}", body_base)
                     };
 
-                    Request::post(&url)
-                        .header(AUTHORIZATION, self.auth_token.clone())
-                        .header(CONNECTION, "keep-alive")
+                    self.client
+                        .post(self.api_url.join("b2_list_file_names").unwrap())
                         .body(Body::from(body))
-                        .unwrap()
+                        .send()
+                        .await
                 })
                 .await?;
 
@@ -292,8 +280,6 @@ impl B2 {
     }
 
     pub async fn list_remote_file_versions(&self, prefix: &str) -> Result<Vec<RemoteFileVersion>> {
-        let url = self.api_url.clone() + "/b2api/v2/b2_list_file_versions";
-
         let body_base = format!(
             "\"bucketId\":\"{}\",\
              \"maxFileCount\":10000,\
@@ -305,7 +291,7 @@ impl B2 {
 
         loop {
             let (status, body) = self
-                .request_with_backoff(|| {
+                .request_with_backoff(|| async {
                     let body = if start_file_version.is_some() {
                         let ver = start_file_version.as_ref().unwrap();
                         format!(
@@ -318,11 +304,11 @@ impl B2 {
                         format!("{{{}}}", body_base)
                     };
 
-                    Request::post(&url)
-                        .header(AUTHORIZATION, self.auth_token.clone())
-                        .header(CONNECTION, "keep-alive")
+                    self.client
+                        .post(self.api_url.join("b2_list_file_versions").unwrap())
                         .body(Body::from(body))
-                        .unwrap()
+                        .send()
+                        .await
                 })
                 .await?;
 
@@ -357,8 +343,6 @@ impl B2 {
     }
 
     pub async fn list_unfinished_large_files(&self, prefix: &str) -> Result<Vec<RemoteFile>> {
-        let url = self.api_url.clone() + "/b2api/v2/b2_list_unfinished_large_files";
-
         let body_base = format!(
             r#""bucketId":"{}",
              "namePrefix":"{}""#,
@@ -369,7 +353,7 @@ impl B2 {
 
         loop {
             let (status, body) = self
-                .request_with_backoff(|| {
+                .request_with_backoff(|| async {
                     let body = if let Some(ref ver) = start_file_version {
                         format!(
                             r#"{{
@@ -382,11 +366,11 @@ impl B2 {
                         format!("{{{}}}", body_base)
                     };
 
-                    Request::post(&url)
-                        .header(AUTHORIZATION, self.auth_token.clone())
-                        .header(CONNECTION, "keep-alive")
+                    self.client
+                        .post(self.api_url.join("b2_list_unfinished_large_files").unwrap())
                         .body(Body::from(body))
-                        .unwrap()
+                        .send()
+                        .await
                 })
                 .await?;
 
@@ -417,12 +401,12 @@ impl B2 {
 
     pub async fn get_upload_url(&self) -> Result<B2Upload> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_url")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_get_upload_url").unwrap())
                     .body(Body::from(format!("{{\"bucketId\":\"{}\"}}", self.bucket_id)))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -436,12 +420,12 @@ impl B2 {
     /// The returned B2Upload struct is only valid for the one large file being uploaded
     pub async fn get_upload_part_url(&self, file_id: &str) -> Result<B2Upload> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_get_upload_part_url")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_get_upload_part_url").unwrap())
                     .body(Body::from(format!(r#"{{"fileId":"{}"}}"#, file_id.to_owned())))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -461,16 +445,16 @@ impl B2 {
 
     pub async fn delete_file_version(&self, file_version: &RemoteFileVersion) -> Result<()> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_delete_file_version")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_delete_file_version").unwrap())
                     .body(Body::from(format!(
                         "{{\"fileId\": \"{}\", \
                          \"fileName\": \"{}\"}}",
                         file_version.id, file_version.path
                     )))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -542,17 +526,18 @@ impl B2 {
         let sha1 = sha1_string(&data);
 
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(&b2upload.upload_url)
+            .request_with_backoff(|| async {
+                self.client
+                    .post(&b2upload.upload_url)
                     .header(AUTHORIZATION, &b2upload.auth_token as &str)
-                    .header(CONNECTION, "keep-alive")
                     .header(CONTENT_TYPE, "application/octet-stream")
                     .header(CONTENT_LENGTH, data.len())
                     .header("X-Bz-File-Name", filename.to_string())
                     .header("X-Bz-Content-Sha1", sha1.clone())
                     .header("X-Bz-Info-enc_meta", enc_meta.to_owned())
                     .body(Body::from(data.clone()))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -612,16 +597,17 @@ impl B2 {
         data: Bytes,
     ) -> Result<()> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(upload_url)
+            .request_with_backoff(|| async {
+                self.client
+                    .post(upload_url)
                     .header(AUTHORIZATION, auth_token)
-                    .header(CONNECTION, "keep-alive")
                     .header(CONTENT_TYPE, "application/octet-stream")
                     .header(CONTENT_LENGTH, data.len())
                     .header("X-Bz-Part-Number", part_index.to_string())
                     .header("X-Bz-Content-Sha1", sha1)
                     .body(Body::from(data.clone()))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -644,12 +630,12 @@ impl B2 {
         );
 
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_finish_large_file")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_finish_large_file").unwrap())
                     .body(Body::from(body_json.clone()))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -662,17 +648,17 @@ impl B2 {
 
     async fn cancel_large_file(&self, file_id: &str) -> Result<()> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_cancel_large_file")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_cancel_large_file").unwrap())
                     .body(Body::from(format!(
                         r#"{{
                             "fileId": "{}"
                         }}"#,
                         file_id
                     )))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -682,10 +668,9 @@ impl B2 {
 
     async fn start_large_file(&self, filename: &str, enc_meta: &str) -> Result<String> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_start_large_file")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_start_large_file").unwrap())
                     .body(Body::from(format!(
                         r#"{{
                             "bucketId": "{}",
@@ -699,7 +684,8 @@ impl B2 {
                         filename,
                         enc_meta.to_owned()
                     )))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -731,19 +717,25 @@ impl B2 {
     }
 
     pub async fn download_file(&self, filename: &str) -> Result<Bytes> {
-        let body = self.download_file_stream(filename).await?;
-        Ok(hyper::body::to_bytes(body).await?)
+        let res = self.download_file_response(filename).await?;
+        Ok(res.bytes().await?)
     }
 
-    pub async fn download_file_stream(&self, filename: &str) -> Result<Body> {
-        let filename = filename.to_owned();
+    pub async fn download_file_stream(
+        &self,
+        filename: &str,
+    ) -> Result<BoxStream<'static, Result<Bytes, reqwest::Error>>> {
+        let res = self.download_file_response(filename).await?;
+        Ok(res.bytes_stream().boxed())
+    }
+
+    async fn download_file_response(&self, filename: &str) -> Result<Response> {
         let (status, body) = self
-            .request_stream_with_backoff(|| {
-                Request::get(self.bucket_download_url.clone() + &filename)
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
-                    .body(Body::empty())
-                    .unwrap()
+            .request_response_with_backoff(|| async {
+                self.client
+                    .get(self.bucket_download_url.join(filename).unwrap())
+                    .send()
+                    .await
             })
             .await?;
 
@@ -758,16 +750,16 @@ impl B2 {
 
     pub async fn hide_file(&self, file_path_hash: &str) -> Result<()> {
         let (status, body) = self
-            .request_with_backoff(|| {
-                Request::post(self.api_url.clone() + "/b2api/v2/b2_hide_file")
-                    .header(AUTHORIZATION, self.auth_token.clone())
-                    .header(CONNECTION, "keep-alive")
+            .request_with_backoff(|| async {
+                self.client
+                    .post(self.api_url.join("b2_hide_file").unwrap())
                     .body(Body::from(format!(
                         "{{\"bucketId\": \"{}\", \
                          \"fileName\": \"{}\"}}",
                         self.bucket_id, file_path_hash
                     )))
-                    .unwrap()
+                    .send()
+                    .await
             })
             .await?;
 
@@ -786,8 +778,10 @@ impl B2 {
 
 #[cfg(test)]
 pub mod test_helpers {
-    use super::{make_client, B2};
+    use super::{base_client, B2};
     use crate::crypto::Key;
+    use reqwest::Url;
+    use std::str::FromStr;
 
     pub fn test_b2(key: Key) -> B2 {
         B2 {
@@ -795,9 +789,9 @@ pub mod test_helpers {
             bucket_id: "bucket_id".to_string(),
             acc_id: "acc_id".to_string(),
             auth_token: "auth_token".to_string(),
-            api_url: "https://example.org/api/".to_string(),
-            bucket_download_url: "https://example.org/download_url/".to_string(),
-            client: make_client(),
+            api_url: Url::from_str("https://example.org/api/").unwrap(),
+            bucket_download_url: Url::from_str("https://example.org/download_url/").unwrap(),
+            client: base_client().build().unwrap(),
             progress: None,
         }
     }

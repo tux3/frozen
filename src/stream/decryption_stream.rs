@@ -3,9 +3,9 @@ use crate::stream::{next_stream_bytes_chunked, AsyncStreamBox};
 use async_stream::stream;
 use bytes::Bytes;
 use eyre::{eyre, Result};
+use futures::stream::BoxStream;
 use futures::task::{Context, Poll};
 use futures::{Stream, StreamExt, TryStreamExt};
-use hyper::Body;
 use sodiumoxide::crypto::secretstream::{Tag, ABYTES, HEADERBYTES};
 use std::convert::TryInto;
 use std::pin::Pin;
@@ -17,7 +17,7 @@ pub struct DecryptionStream {
 }
 
 impl DecryptionStream {
-    pub fn new(input: Body, key: &Key) -> Self {
+    pub fn new(input: BoxStream<'static, Result<Bytes, reqwest::Error>>, key: &Key) -> Self {
         let (send, mut recv) = mpsc::channel(super::CHUNK_BUFFER_COUNT);
 
         tokio::task::spawn(Self::process(input, key.clone(), send));
@@ -29,7 +29,11 @@ impl DecryptionStream {
         Self { output: stream_recv }
     }
 
-    async fn process(input: Body, key: Key, mut sender: mpsc::Sender<Result<Bytes>>) {
+    async fn process(
+        input: BoxStream<'static, Result<Bytes, reqwest::Error>>,
+        key: Key,
+        mut sender: mpsc::Sender<Result<Bytes>>,
+    ) {
         let mut buf = Vec::new();
         let mut input = input.map_err(From::from).fuse();
 

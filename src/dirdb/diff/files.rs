@@ -256,7 +256,7 @@ mod test {
         let mut filenames = vec![];
         while let Some(item) = block_on(stream.next()) {
             let item = item.unwrap();
-            assert!(!item.remote.is_some()); // This is a local stream
+            assert!(item.remote.is_none()); // This is a local stream
             let local_file = item.local.unwrap();
             filenames.push(local_file.rel_path.to_str().unwrap().to_string());
         }

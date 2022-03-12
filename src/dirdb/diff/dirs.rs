@@ -356,7 +356,7 @@ mod test {
         assert!(tree.prefix_path_hash == "/");
         assert!(tree.deep_diff);
         assert!(!tree.local_only);
-        assert!(!tree.local.is_none());
+        assert!(tree.local.is_some());
     }
 
     #[test]
