@@ -149,6 +149,46 @@ mod tests {
     use sodiumoxide::crypto::secretstream::ABYTES;
 
     #[test]
+    fn derive_key_depends_on_salt() {
+        let a = derive_key("pass", "a");
+        let b = derive_key("pass", "b");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_key_depends_on_pass() {
+        let a = derive_key("a", "salt");
+        let b = derive_key("b", "salt");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derive_key_is_deterministic() {
+        let a = derive_key("x", "salt");
+        let b = derive_key("x", "salt");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn metadata_roundtrip() {
+        let key = derive_key("pass", "salt");
+        let filename = PathBuf::from("/foo");
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mode = 0o755;
+        let is_symlink = true;
+
+        let meta = encode_meta(&key, &filename, time, mode, is_symlink);
+        let (dec_filename, dec_time, dec_mode, dec_is_symlink) = decode_meta(&key, &meta).unwrap();
+        assert_eq!(filename, dec_filename);
+        assert_eq!(time, dec_time);
+        assert_eq!(mode, dec_mode);
+        assert_eq!(is_symlink, dec_is_symlink);
+    }
+
+    #[test]
     fn secretstream_roundtrip() {
         use sodiumoxide::crypto::secretstream::Tag;
 
