@@ -21,7 +21,7 @@ pub struct RemoteFile {
     pub is_symlink: bool,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RemoteFileVersion {
     pub path: String,
     pub id: String,
