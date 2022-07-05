@@ -16,7 +16,7 @@ bytes = "1.0"
 bincode = "1.2"
 sodiumoxide = "0.2"
 libsodium-sys = "0.2"
-rpassword = "5.0"
+rpassword = "6.0"
 blake2 = "0.10"
 sha-1 = "0.10"
 digest = "0.10"
@@ -33,7 +33,7 @@ crossbeam = "0.8"
 indicatif = "0.16"
 tempfile = "3"
 eyre = "0.6"
-fs-set-times = "0.15.0"
+fs-set-times = "0.17.0"
 
 [profile.release]
 lto = true
