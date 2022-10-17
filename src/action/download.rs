@@ -146,17 +146,17 @@ async fn save_file(
                 file.rel_path.display(),
                 err
             ));
-            let _ = std::fs::remove_file(&save_path);
+            let _ = fs::remove_file(&save_path);
             return Err(());
         }
         let mtime = SystemTime::UNIX_EPOCH.add(Duration::from_secs(file.last_modified));
-        if let Err(err) = final_file.set_times(None, Some(SystemTimeSpec::Absolute(mtime))) {
+        if let Err(err) = SetTimes::set_times(&final_file, None, Some(SystemTimeSpec::Absolute(mtime))) {
             progress.report_error(&format!(
                 "Failed to set mtime of file \"{}\": {}",
                 file.rel_path.display(),
                 err
             ));
-            let _ = std::fs::remove_file(&save_path);
+            let _ = fs::remove_file(&save_path);
             return Err(());
         }
     }
