@@ -42,15 +42,15 @@ impl DirStat {
             if path.is_dir() && !is_symlink {
                 let subfolder = DirStat::new(base_path, &path)?;
                 total_files_count += subfolder.total_files_count;
-                hasher.update(&subfolder.content_hash);
+                hasher.update(subfolder.content_hash);
                 subfolders.push(subfolder);
             } else {
                 total_files_count += 1;
                 let meta = entry.metadata()?;
                 let mtime = meta.modified()?.duration_since(SystemTime::UNIX_EPOCH)?;
-                hasher.update(&mtime.as_secs().to_le_bytes());
-                hasher.update(&mtime.subsec_nanos().to_le_bytes());
-                hasher.update(&meta.len().to_le_bytes());
+                hasher.update(mtime.as_secs().to_le_bytes());
+                hasher.update(mtime.subsec_nanos().to_le_bytes());
+                hasher.update(meta.len().to_le_bytes());
 
                 direct_files.push(FileStat::new(rel_path, meta)?);
             }
@@ -78,7 +78,7 @@ impl DirStat {
                 key,
                 &mut subfolder.dir_name_hash,
             );
-            base64::encode_config_buf(&subfolder.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+            base64::encode_config_buf(subfolder.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
             path_hash_str.push('/');
             subfolder.recompute_dir_name_hashes(path_hash_str, key);
         }

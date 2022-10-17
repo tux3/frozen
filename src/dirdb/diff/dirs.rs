@@ -90,7 +90,7 @@ impl DiffTree {
 
         for remote_subdir in remote.subfolders.iter() {
             prefix_path_hash.truncate(cur_prefix_path_hash_len);
-            base64::encode_config_buf(&remote_subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, prefix_path_hash);
+            base64::encode_config_buf(remote_subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, prefix_path_hash);
             prefix_path_hash.push('/');
 
             tree.direct_files_count -= remote_subdir.total_files_count;
@@ -119,7 +119,7 @@ impl DiffTree {
         for (_hash, local_only_subdir) in local_subdirs.into_iter() {
             prefix_path_hash.truncate(cur_prefix_path_hash_len);
             base64::encode_config_buf(
-                &local_only_subdir.dir_name_hash,
+                local_only_subdir.dir_name_hash,
                 base64::URL_SAFE_NO_PAD,
                 prefix_path_hash,
             );

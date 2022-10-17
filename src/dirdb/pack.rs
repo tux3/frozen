@@ -189,7 +189,7 @@ impl DirStat {
 
         // Skip encoding the dir_name hash for the root folder, its path hash is just "/"
         if !path_hash_str.is_empty() {
-            base64::encode_config_buf(&stat.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+            base64::encode_config_buf(stat.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
         }
         path_hash_str.push('/');
         let cur_path_hash_str_len = path_hash_str.len();

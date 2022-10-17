@@ -173,7 +173,7 @@ impl FileDiffStream {
         let cur_dir_path_hash_len = dir_path_hash.len();
         for subdir in dirstat.subfolders.iter() {
             dir_path_hash.truncate(cur_dir_path_hash_len);
-            base64::encode_config_buf(&subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, dir_path_hash);
+            base64::encode_config_buf(subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, dir_path_hash);
             dir_path_hash.push('/');
             Self::flatten_dirstat_files(files, subdir, dir_path_hash, key);
         }

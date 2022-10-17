@@ -88,7 +88,7 @@ mod tests {
 
         let mut rstream = BitstreamReader::new(&buf);
         for &val in to_encode.iter() {
-            assert_eq!(val as u64, rstream.read());
+            assert_eq!(val, rstream.read());
         }
 
         Ok(())

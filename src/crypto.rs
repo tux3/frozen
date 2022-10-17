@@ -111,14 +111,14 @@ pub fn hash_path_filename_into(parent_hash: &[u8], secret_filename: &[u8], key: 
     let mut hasher = Blake2bMac::<FilenamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
     Mac::update(&mut hasher, parent_hash);
     Mac::update(&mut hasher, secret_filename);
-    base64::encode_config_buf(&hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD, out);
+    base64::encode_config_buf(hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD, out);
 }
 
 pub fn hash_path_root(secret_root_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut hasher = Blake2bMac::<DirnamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
     Mac::update(&mut hasher, &serialize(secret_root_path).unwrap());
-    base64::encode_config(&hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD)
+    base64::encode_config(hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD)
 }
 
 pub fn sha1_string(data: &[u8]) -> String {
