@@ -1,6 +1,7 @@
 use crate::config::Config;
 use clap::{arg, Command};
 use eyre::{Result, WrapErr};
+use std::ffi::OsString;
 use std::process::exit;
 
 mod action;
@@ -29,24 +30,33 @@ async fn async_main() -> Result<()> {
             Command::new("backup")
                 .about("Backup a folder, encrypted and compressed, to the cloud")
                 .arg(arg!(-k --"keep-existing" "Keep remote files that have been deleted locally"))
-                .arg(arg!(<source> "The source folder to backup").allow_invalid_utf8(true))
-                .arg(arg!([destination] "Save the back up under a different path").allow_invalid_utf8(true)),
+                .arg(arg!(<source> "The source folder to backup").value_parser(clap::value_parser!(OsString)))
+                .arg(
+                    arg!([destination] "Save the back up under a different path")
+                        .value_parser(clap::value_parser!(OsString)),
+                ),
         )
         .subcommand(
             Command::new("restore")
                 .about("Restore a backed up folder")
-                .arg(arg!(<source> "The backed up folder to restore").allow_invalid_utf8(true))
-                .arg(arg!([destination] "Path to save the downloaded folder").allow_invalid_utf8(true)),
+                .arg(arg!(<source> "The backed up folder to restore").value_parser(clap::value_parser!(OsString)))
+                .arg(
+                    arg!([destination] "Path to save the downloaded folder")
+                        .value_parser(clap::value_parser!(OsString)),
+                ),
         )
         .subcommand(
             Command::new("delete")
                 .about("Delete a backed up folder")
-                .arg(arg!(<target> "The backed up folder to delete").allow_invalid_utf8(true)),
+                .arg(arg!(<target> "The backed up folder to delete").value_parser(clap::value_parser!(OsString))),
         )
         .subcommand(
             Command::new("unlock")
                 .about("Force unlocking a folder after an interrupted backup. Dangerous.")
-                .arg(arg!(<target> "The backed up folder to forcibly unlock").allow_invalid_utf8(true)),
+                .arg(
+                    arg!(<target> "The backed up folder to forcibly unlock")
+                        .value_parser(clap::value_parser!(OsString)),
+                ),
         )
         .subcommand(
             Command::new("save-key")
@@ -55,12 +65,12 @@ async fn async_main() -> Result<()> {
         .subcommand(
             Command::new("rename")
                 .about("Rename a backed-up folder on the server.")
-                .arg(arg!(<source> "Source path of the folder to rename").allow_invalid_utf8(true))
-                .arg(arg!(<target> "New path of the backup").allow_invalid_utf8(true)),
+                .arg(arg!(<source> "Source path of the folder to rename").value_parser(clap::value_parser!(OsString)))
+                .arg(arg!(<target> "New path of the backup").value_parser(clap::value_parser!(OsString))),
         )
         .get_matches();
 
-    let config = Config::get_or_create(args.is_present("verbose"));
+    let config = Config::get_or_create(args.get_flag("verbose"));
     match args.subcommand().unwrap() {
         ("backup", sub_args) => cmd::backup(&config, sub_args).await,
         ("restore", sub_args) => cmd::restore(&config, sub_args).await,

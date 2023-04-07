@@ -30,7 +30,7 @@ pub async fn upload(
         let upload_url = match b2.get_upload_url().await {
             Ok(upload_url) => upload_url,
             Err(err) => {
-                progress.report_error(&format!(
+                progress.report_error(format!(
                     "Failed to start upload for file \"{}\": {}",
                     rel_path.display(),
                     err

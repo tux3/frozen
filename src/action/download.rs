@@ -57,10 +57,7 @@ async fn save_file(
     let save_path = target.join(&file.rel_path);
     let save_dir = Path::new(&save_path).parent().unwrap();
     if fs::create_dir_all(save_dir).is_err() {
-        progress.report_error(&format!(
-            "Failed to create path to file \"{}\"",
-            file.rel_path.display()
-        ));
+        progress.report_error(format!("Failed to create path to file \"{}\"", file.rel_path.display()));
         return Err(());
     }
     let _ = fs::remove_file(&save_path);
@@ -69,7 +66,7 @@ async fn save_file(
         while let Some(compressed) = decrypted_stream.next().await {
             match compressed {
                 Err(err) => {
-                    progress.report_error(&format!("Failed to decrypt \"{}\": {}", file.rel_path.display(), err));
+                    progress.report_error(format!("Failed to decrypt \"{}\": {}", file.rel_path.display(), err));
                     return Err(());
                 }
                 Ok(compressed) => compressed_buf.extend_from_slice(&compressed),
@@ -77,11 +74,7 @@ async fn save_file(
         }
         let decompressed = match zstd::decode_all(compressed_buf.as_slice()) {
             Err(err) => {
-                progress.report_error(&format!(
-                    "Failed to decompress \"{}\": {}",
-                    file.rel_path.display(),
-                    err
-                ));
+                progress.report_error(format!("Failed to decompress \"{}\": {}", file.rel_path.display(), err));
                 return Err(());
             }
             Ok(data) => data,
@@ -89,13 +82,13 @@ async fn save_file(
 
         let link_target = String::from_utf8(decompressed).unwrap();
         if symlink(link_target, save_path).is_err() {
-            progress.report_error(&format!("Failed to create symlink \"{}\"", file.rel_path.display()));
+            progress.report_error(format!("Failed to create symlink \"{}\"", file.rel_path.display()));
             return Err(());
         }
     } else {
         let tempfile = match tempfile::NamedTempFile::new_in(save_dir) {
             Err(err) => {
-                progress.report_error(&format!(
+                progress.report_error(format!(
                     "Failed to create temp file for \"{}\": {}",
                     file.rel_path.display(),
                     err
@@ -107,7 +100,7 @@ async fn save_file(
         let fd = match tempfile.reopen() {
             Ok(x) => x,
             Err(err) => {
-                progress.report_error(&format!(
+                progress.report_error(format!(
                     "Failed to reopen temp file for \"{}\": {}",
                     file.rel_path.display(),
                     err
@@ -118,7 +111,7 @@ async fn save_file(
         let mut decompressed_stream = DecompressionStream::new(Box::new(decrypted_stream), fd);
         while let Some(result) = decompressed_stream.next().await {
             if let Err(err) = result {
-                progress.report_error(&format!(
+                progress.report_error(format!(
                     "Failed to decrypt/decompress \"{}\": {}",
                     file.rel_path.display(),
                     err
@@ -130,18 +123,14 @@ async fn save_file(
         }
         let final_file = match tempfile.persist(&save_path) {
             Err(err) => {
-                progress.report_error(&format!(
-                    "Failed to save \"{}\": {}",
-                    file.rel_path.display(),
-                    err.error
-                ));
+                progress.report_error(format!("Failed to save \"{}\": {}", file.rel_path.display(), err.error));
                 drop(decompressed_stream);
                 return Err(());
             }
             Ok(f) => f,
         };
         if let Err(err) = final_file.set_permissions(Permissions::from_mode(file.mode)) {
-            progress.report_error(&format!(
+            progress.report_error(format!(
                 "Failed to set permissions of file \"{}\": {}",
                 file.rel_path.display(),
                 err
@@ -151,7 +140,7 @@ async fn save_file(
         }
         let mtime = SystemTime::UNIX_EPOCH.add(Duration::from_secs(file.last_modified));
         if let Err(err) = SetTimes::set_times(&final_file, None, Some(SystemTimeSpec::Absolute(mtime))) {
-            progress.report_error(&format!(
+            progress.report_error(format!(
                 "Failed to set mtime of file \"{}\": {}",
                 file.rel_path.display(),
                 err

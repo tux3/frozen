@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use eyre::{eyre, Result};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
@@ -42,7 +42,7 @@ pub fn to_semi_canonical_path(path: &Path) -> Result<PathBuf> {
 
 /// Makes an absolute semi-canonical path from a command line argument
 pub fn path_from_arg(args: &ArgMatches, name: &str) -> Result<PathBuf> {
-    match args.value_of_os(name) {
+    match args.get_one::<OsString>(name) {
         Some(raw_path) => to_semi_canonical_path(Path::new(raw_path)),
         _ => Err(eyre!("Missing required argument \"{}\"", name)),
     }

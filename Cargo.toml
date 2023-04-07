@@ -9,31 +9,31 @@ publish = false
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.4", features = ["macros", "rt-multi-thread", "signal", "sync"] }
 async-stream = "0.3"
-zstd = { version = "0.11" }
-reqwest = { version = "0.11.9", features = ["rustls-tls", "gzip", "brotli", "json", "stream"], default-features = false }
+zstd = { version = "0.12" }
+reqwest = { version = "0.11.15", features = ["rustls-tls", "gzip", "brotli", "json", "stream"], default-features = false }
 futures = "0.3"
 bytes = "1.0"
 bincode = "1.2"
 sodiumoxide = "0.2"
 libsodium-sys = "0.2"
-rpassword = "6.0"
+rpassword = "7.2.0"
 blake2 = "0.10"
 sha-1 = "0.10"
 digest = "0.10"
 serde_json = "1.0"
 data-encoding = "2.1"
-base64 = "0.13"
+base64 = "0.21.0"
 num_cpus = "1.10"
-clap = "3.1"
+clap = "4.2"
 leb128 = "0.2"
 owning_ref = "0.4"
-hashbrown = "0.12"
-futures-intrusive = "0.4"
+hashbrown = "0.13.2"
+futures-intrusive = "0.5.0"
 crossbeam = "0.8"
-indicatif = "0.16"
+indicatif = "0.17.3"
 tempfile = "3"
 eyre = "0.6"
-fs-set-times = "0.17.0"
+fs-set-times = "0.19.1"
 
 [profile.release]
 lto = true

@@ -39,7 +39,8 @@ impl ProgressHandler {
     }
 
     pub fn finish(&self) {
-        self.progress_bar.finish_at_current_pos();
+        // abandon is like finish, but leaves the bar as-id instead of hiding it
+        self.progress_bar.abandon();
     }
 
     /// When true, it is okay to println() verbose progress information

@@ -1,6 +1,7 @@
 use super::FileStat;
 use crate::crypto::{self, Key};
 use crate::data::paths::path_to_bytes;
+use base64::Engine;
 use blake2::{Blake2b, Digest};
 use digest::generic_array::GenericArray;
 use eyre::Result;
@@ -78,7 +79,7 @@ impl DirStat {
                 key,
                 &mut subfolder.dir_name_hash,
             );
-            base64::encode_config_buf(subfolder.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode_string(subfolder.dir_name_hash, path_hash_str);
             path_hash_str.push('/');
             subfolder.recompute_dir_name_hashes(path_hash_str, key);
         }

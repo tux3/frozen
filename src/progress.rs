@@ -1,7 +1,5 @@
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::cell::Cell;
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressFinish, ProgressStyle};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 
 mod progress_handler;
 pub use progress_handler::*;
@@ -34,7 +32,6 @@ pub struct Progress {
     upload_progress: ProgressHandler,
     download_progress: ProgressHandler,
     delete_progress: ProgressHandler,
-    progress_thread: Cell<Option<JoinHandle<()>>>,
 }
 
 impl Progress {
@@ -46,16 +43,18 @@ impl Progress {
             upload_progress: Self::create_progress_bar(ProgressType::Upload, verbose),
             download_progress: Self::create_progress_bar(ProgressType::Download, verbose),
             delete_progress: Self::create_progress_bar(ProgressType::Delete, verbose),
-            progress_thread: Cell::new(None),
         }
     }
 
     fn create_progress_bar(bar_type: ProgressType, verbose: bool) -> ProgressHandler {
-        let progress_bar = ProgressBar::with_draw_target(1, ProgressDrawTarget::hidden()).with_style(
-            ProgressStyle::default_bar()
-                .template(bar_type.style_template())
-                .progress_chars("=> "),
-        );
+        let progress_bar = ProgressBar::with_draw_target(None, ProgressDrawTarget::hidden())
+            .with_style(
+                ProgressStyle::default_bar()
+                    .template(bar_type.style_template())
+                    .unwrap()
+                    .progress_chars("=> "),
+            )
+            .with_finish(ProgressFinish::Abandon);
         ProgressHandler::new(progress_bar, verbose)
     }
 
@@ -80,15 +79,6 @@ impl Progress {
         bar_handler.set_length(num_to_do);
         self.multi_progress.add(bar_handler.progress_bar.clone());
 
-        let mut progress_thread = self.progress_thread.take();
-        if progress_thread.is_none() {
-            let multi_progress_clone = self.multi_progress.clone();
-            progress_thread = Some(std::thread::spawn(move || {
-                multi_progress_clone.join().expect("Failed to join MultiProgress");
-            }));
-        };
-        self.progress_thread.set(progress_thread);
-
         bar_handler.progress_bar.tick();
         bar_handler
     }
@@ -110,14 +100,6 @@ impl Progress {
             && self.download_progress.is_complete()
             && self.delete_progress.is_complete()
     }
-
-    /// Must only be called after all progress handles are finished, or will block forever
-    /// After join returns, it is okay to print output directly again
-    pub fn join(&self) {
-        if let Some(progress_thread) = self.progress_thread.take() {
-            progress_thread.join().expect("Failed to join progress thread");
-        }
-    }
 }
 
 impl Drop for Progress {
@@ -127,23 +109,5 @@ impl Drop for Progress {
         self.upload_progress.finish();
         self.download_progress.finish();
         self.delete_progress.finish();
-        self.join();
-
-        // After we drop multi_progress, our progress_handlers must stop drawing to it or they'll panic on unwrap
-        self.diff_progress
-            .progress_bar
-            .set_draw_target(ProgressDrawTarget::hidden());
-        self.cleanup_progress
-            .progress_bar
-            .set_draw_target(ProgressDrawTarget::hidden());
-        self.upload_progress
-            .progress_bar
-            .set_draw_target(ProgressDrawTarget::hidden());
-        self.download_progress
-            .progress_bar
-            .set_draw_target(ProgressDrawTarget::hidden());
-        self.delete_progress
-            .progress_bar
-            .set_draw_target(ProgressDrawTarget::hidden());
     }
 }

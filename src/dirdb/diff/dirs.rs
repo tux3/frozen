@@ -2,6 +2,7 @@ use super::{DirStat, FileDiffStream};
 use crate::data::root::BackupRoot;
 use crate::dirdb::DirDB;
 use crate::net::b2::B2;
+use base64::Engine;
 use futures::stream::SelectAll;
 use owning_ref::ArcRef;
 use std::collections::hash_map::{Entry, HashMap};
@@ -90,7 +91,8 @@ impl DiffTree {
 
         for remote_subdir in remote.subfolders.iter() {
             prefix_path_hash.truncate(cur_prefix_path_hash_len);
-            base64::encode_config_buf(remote_subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, prefix_path_hash);
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode_string(remote_subdir.dir_name_hash, prefix_path_hash);
             prefix_path_hash.push('/');
 
             tree.direct_files_count -= remote_subdir.total_files_count;
@@ -118,11 +120,8 @@ impl DiffTree {
 
         for (_hash, local_only_subdir) in local_subdirs.into_iter() {
             prefix_path_hash.truncate(cur_prefix_path_hash_len);
-            base64::encode_config_buf(
-                local_only_subdir.dir_name_hash,
-                base64::URL_SAFE_NO_PAD,
-                prefix_path_hash,
-            );
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode_string(local_only_subdir.dir_name_hash, prefix_path_hash);
             prefix_path_hash.push('/');
 
             tree.children.push(DiffTree {

@@ -67,7 +67,7 @@ impl BackupRoot {
         self.lock = Some((lock_version, b2.clone()));
 
         if let Err(err) = locks {
-            let _ = self.unlock();
+            let _ = self.unlock().await;
             return Err(err.wrap_err("Failed to lock backup root"));
         }
         let locks = locks.unwrap();

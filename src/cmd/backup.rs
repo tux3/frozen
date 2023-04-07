@@ -92,7 +92,7 @@ pub async fn backup_one_root(
     let mut num_upload_actions = 0;
     let mut num_delete_actions = 0;
     let rate_limiter = Arc::new(RateLimiter::new(config, &b2));
-    let keep_existing = args.is_present("keep-existing");
+    let keep_existing = args.get_flag("keep-existing");
     while let Some(item) = dir_diff.next().await {
         let item = item?;
 
@@ -149,10 +149,11 @@ pub async fn backup_one_root(
     cleanup_progress.finish();
     upload_progress.finish();
     delete_progress.finish();
-    progress.join();
+    let (complete, err_count) = (progress.is_complete(), progress.errors_count());
+    drop(progress);
 
-    if !progress.is_complete() {
-        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
+    if !complete {
+        bail!("Couldn't complete all operations, {} error(s)", err_count)
     }
 
     println!("Uploading new DirDB");

@@ -2,6 +2,7 @@ use crate::crypto::{self, Key};
 use crate::data::paths::path_from_bytes;
 use crate::dirdb::bitstream::*;
 use crate::dirdb::DirStat;
+use base64::Engine;
 use eyre::Result;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -24,8 +25,9 @@ struct EncodingSettings {
     dirname_counts: Encoding,
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn dirnames_packing_info_inner(stat: &DirStat) -> Result<PackingInfo> {
-    let mut info = PackingInfo { ..Default::default() };
+    let mut info = PackingInfo::default();
 
     // We want to be able to restore empty folders, so we need to save their real name
     info.need_folder_full_path = stat.total_files_count == 0;
@@ -189,7 +191,7 @@ impl DirStat {
 
         // Skip encoding the dir_name hash for the root folder, its path hash is just "/"
         if !path_hash_str.is_empty() {
-            base64::encode_config_buf(stat.dir_name_hash, base64::URL_SAFE_NO_PAD, path_hash_str);
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode_string(stat.dir_name_hash, path_hash_str);
         }
         path_hash_str.push('/');
         let cur_path_hash_str_len = path_hash_str.len();

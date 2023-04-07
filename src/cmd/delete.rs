@@ -73,13 +73,14 @@ async fn delete_one_root(
     }
     action_futs.for_each(|()| futures::future::ready(())).await;
     delete_progress.finish();
-    progress.join();
+    let (complete, err_count) = (progress.is_complete(), progress.errors_count());
+    drop(progress);
 
     println!("Deleting backup root");
     root::delete_root(b2, roots, path).await?;
 
-    if !progress.is_complete() {
-        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
+    if !complete {
+        bail!("Couldn't complete all operations, {} error(s)", err_count)
     }
     Ok(())
 }

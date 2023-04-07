@@ -1,3 +1,4 @@
+use base64::Engine;
 use bincode::{deserialize, serialize};
 use blake2::{Blake2bMac, Digest};
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER_PERMISSIVE};
@@ -45,18 +46,18 @@ pub fn derive_key(pwd: &str, salt: &str) -> Key {
     key
 }
 
-pub fn create_secretstream(&Key(ref key): &Key) -> (SecretStream<Push>, Header) {
+pub fn create_secretstream(Key(key): &Key) -> (SecretStream<Push>, Header) {
     let secretstream_key = SecretStreamKey(key.to_owned());
     SecretStream::init_push(&secretstream_key).unwrap()
 }
 
-pub fn open_secretstream(header: &[u8], &Key(ref key): &Key) -> SecretStream<Pull> {
+pub fn open_secretstream(header: &[u8], Key(key): &Key) -> SecretStream<Pull> {
     let secretstream_key = SecretStreamKey(key.to_owned());
     let header = Header::from_slice(header).expect("Invalid secretstream header size");
     SecretStream::init_pull(&header, &secretstream_key).unwrap()
 }
 
-pub fn encrypt(plain: &[u8], &Key(ref key): &Key) -> Vec<u8> {
+pub fn encrypt(plain: &[u8], Key(key): &Key) -> Vec<u8> {
     let nonce = secretbox::gen_nonce();
     let secretbox::Nonce(nonceb) = nonce;
 
@@ -111,14 +112,14 @@ pub fn hash_path_filename_into(parent_hash: &[u8], secret_filename: &[u8], key: 
     let mut hasher = Blake2bMac::<FilenamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
     Mac::update(&mut hasher, parent_hash);
     Mac::update(&mut hasher, secret_filename);
-    base64::encode_config_buf(hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD, out);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode_string(hasher.finalize().into_bytes(), out);
 }
 
 pub fn hash_path_root(secret_root_path: &Path, key: &Key) -> String {
     let &Key(keydata) = key;
     let mut hasher = Blake2bMac::<DirnamePathHashLenTypenum>::new_with_salt_and_personal(&keydata, &[], &[]).unwrap();
     Mac::update(&mut hasher, &serialize(secret_root_path).unwrap());
-    base64::encode_config(hasher.finalize().into_bytes(), base64::URL_SAFE_NO_PAD)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize().into_bytes())
 }
 
 pub fn sha1_string(data: &[u8]) -> String {

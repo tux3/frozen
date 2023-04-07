@@ -119,13 +119,14 @@ pub async fn restore_one_root(config: &Config, target: PathBuf, mut b2: B2, root
 
     action_futs.for_each(|()| futures::future::ready(())).await;
     download_progress.finish();
-    progress.join();
+    let (complete, err_count) = (progress.is_complete(), progress.errors_count());
+    drop(progress);
     if let Some(task) = empty_folders_task {
         task.await?;
     }
 
-    if !progress.is_complete() {
-        bail!("Couldn't complete all operations, {} error(s)", progress.errors_count())
+    if !complete {
+        bail!("Couldn't complete all operations, {} error(s)", err_count)
     }
     Ok(())
 }

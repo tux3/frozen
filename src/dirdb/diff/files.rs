@@ -4,6 +4,7 @@ use crate::data::file::{LocalFile, RemoteFile};
 use crate::data::paths::filename_to_bytes;
 use crate::data::root::BackupRoot;
 use crate::net::b2::{FileListDepth, B2};
+use base64::Engine;
 use eyre::Result;
 use futures::future::{FutureExt, LocalBoxFuture};
 use futures::stream::{LocalBoxStream, Stream, StreamExt};
@@ -173,7 +174,7 @@ impl FileDiffStream {
         let cur_dir_path_hash_len = dir_path_hash.len();
         for subdir in dirstat.subfolders.iter() {
             dir_path_hash.truncate(cur_dir_path_hash_len);
-            base64::encode_config_buf(subdir.dir_name_hash, base64::URL_SAFE_NO_PAD, dir_path_hash);
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode_string(subdir.dir_name_hash, dir_path_hash);
             dir_path_hash.push('/');
             Self::flatten_dirstat_files(files, subdir, dir_path_hash, key);
         }
